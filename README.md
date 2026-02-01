@@ -1,7 +1,6 @@
 <div align="center">
 
-# <a href="https://d-epict.vercel.app"><img src="app/icon.svg" alt="" width="44" height="44" /></a>
-# [Depict](https://d-epict.vercel.app)
+# <a href="https://d-epict.vercel.app"><img src="app/icon.svg" alt="" width="44" height="44" /></a><br />[Depict](https://d-epict.vercel.app)
 
 **Visualize and analyze chemical structures from SMILES**
 
@@ -178,7 +177,7 @@ See [app/api/README.md](./app/api/README.md) for request/response schemas.
 
 ## Tech stack
 
-| --- | --- |
+| | |
 | [Next.js 16](https://nextjs.org/) | React framework |
 | [OpenChemLib](https://github.com/actelion/openchemlib) | Rendering and chemistry calculations |
 | [Ketcher](https://github.com/epam/ketcher) | Structure editor |
