@@ -1,0 +1,35 @@
+# Depict
+
+> Cheminformatics web app for visualizing molecules and reactions from SMILES.
+
+## Overview
+
+Depict is a Next.js application that renders chemical structures, computes molecular properties, and supports substructure search, filtering, export, and structure editing. It accepts SMILES (comma or newline separated), supports reaction SMILES (Daylight `>` and multi-step `>>`), and atom mapping (`:1` notation).
+
+## Key Capabilities
+
+- **Input**: SMILES, reaction SMILES, MOL/SDF file import
+- **Rendering**: 2D SVG (OpenChemLib), 3D (3Dmol.js)
+- **Properties**: MW, LogP, TPSA, LogS, rotatable bonds, HBD/HBA, stereo centers
+- **Filtering**: Substructure (SMARTS), property ranges
+- **Export**: SVG, MOL, SDF, CSV, .smi
+- **Editor**: Ketcher for draw/edit
+
+## REST API (for AI agents)
+
+Base path: `/api` (relative to deployed URL).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/parse` | POST | Parse SMILES; returns validation, canonical form, properties |
+| `/api/svg` | POST | Generate SVG depiction for molecule or reaction |
+| `/api/deduplicate` | POST | Remove duplicate SMILES (canonical or string mode) |
+
+See /api docs for request/response schemas.
+
+## Tech Stack
+
+- Next.js 16, React 19
+- OpenChemLib (rendering, properties)
+- Ketcher (structure editor)
+- Zustand, Tailwind, Radix UI, CodeMirror

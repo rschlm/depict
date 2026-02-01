@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="42px" height="42px" viewBox="0 0 42 42" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Group</title>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Frame" transform="translate(-3, -3)">
+            <g id="Group" transform="translate(11.6819, 7.0361)">
+                <rect id="Rectangle" fill="#000000" x="-8.68191812" y="-4.03611275" width="42" height="42" rx="8"></rect>
+                <path d="M5.31285512,1.56774407 L21.3128551,7.44736424 C22.4934609,7.88120884 23.2780819,9.00545948 23.2780819,10.2632556 L23.2780819,21.6098346 C23.2780819,22.8533742 22.5108921,23.9680011 21.3493368,24.4120504 L5.34933678,30.5286667 C3.80171577,31.1203044 2.0675039,30.3453269 1.47586616,28.7977059 C1.34511489,28.4556834 1.27808188,28.0926139 1.27808188,27.726451 L1.27808188,4.38363546 C1.27808188,2.72678121 2.62122763,1.38363546 4.27808188,1.38363546 C4.63115282,1.38363546 4.98145198,1.44596128 5.31285512,1.56774407 Z" id="Path" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+                <line x1="5.83436445" y1="6.61902094" x2="5.83436445" y2="25.2252307" id="Path" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"></line>
+            </g>
+        </g>
+    </g>
+</svg>
