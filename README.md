@@ -1,6 +1,7 @@
 <div align="center">
 
-# <a href="https://d-epict.vercel.app"><img src="app/icon.svg" alt="" width="44" height="44" style="vertical-align: middle" /> epict</a>
+# <a href="https://d-epict.vercel.app"><img src="app/icon.svg" alt="" width="44" height="44" /></a>
+# [Depict](https://d-epict.vercel.app)
 
 **Visualize and analyze chemical structures from SMILES**
 
@@ -8,7 +9,6 @@
 [![GitHub issues](https://img.shields.io/github/issues/schlama/chem-depict?style=flat)](https://github.com/schlama/chem-depict/issues)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white&style=flat)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white&style=flat)](https://nextjs.org/)
-[![OpenChemLib-js](https://img.shields.io/badge/OpenChemLibjs-9-E91E63?style=flat)](https://github.com/cheminfo/openchemlib-js)
 
 A modern cheminformatics dashboard for rendering molecules and reactions, computing properties, filtering by substructure or property ranges, and exporting to multiple formats. Designed for clarity, speed, and AI agent integration.
 
@@ -23,14 +23,7 @@ A modern cheminformatics dashboard for rendering molecules and reactions, comput
 ### Main view — molecule grid
 
 <p align="center">
-  <div style="display: inline-block; background: #e8e8e8; border-radius: 8px; padding: 6px 6px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
-    <div style="display: flex; align-items: center; gap: 5px; padding: 6px 8px;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #febc2e; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #28c840; display: inline-block;"></span>
-    </div>
-    <img src="./assets/main-grid.png" alt="Main grid view with molecules and reactions" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
-  </div>
+  <img src="./assets/main-grid.png" alt="Main grid view with molecules and reactions" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
 </p>
 
 *Paste SMILES, view structures in a responsive grid. Sort, filter, and export.*
@@ -40,14 +33,7 @@ A modern cheminformatics dashboard for rendering molecules and reactions, comput
 ### Detail panel & properties
 
 <p align="center">
-  <div style="display: inline-block; background: #e8e8e8; border-radius: 8px; padding: 6px 6px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
-    <div style="display: flex; align-items: center; gap: 5px; padding: 6px 8px;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #febc2e; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #28c840; display: inline-block;"></span>
-    </div>
-    <img src="./assets/detail-panel.png" alt="Molecule detail panel with properties and actions" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
-  </div>
+  <img src="./assets/detail-panel.png" alt="Molecule detail panel with properties and actions" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
 </p>
 
 *Click a card to open the detail panel. View properties, copy SMILES/InChI, export MOL/SDF, or open external links.*
@@ -57,14 +43,7 @@ A modern cheminformatics dashboard for rendering molecules and reactions, comput
 ### Property charts
 
 <p align="center">
-  <div style="display: inline-block; background: #e8e8e8; border-radius: 8px; padding: 6px 6px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
-    <div style="display: flex; align-items: center; gap: 5px; padding: 6px 8px;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #febc2e; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #28c840; display: inline-block;"></span>
-    </div>
-    <img src="./assets/property-charts.png" alt="Property distribution charts" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
-  </div>
+  <img src="./assets/property-charts.png" alt="Property distribution charts" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
 </p>
 
 *Histogram and scatter plots for MW, LogP, TPSA, and more. Hover for molecule preview.*
@@ -74,14 +53,7 @@ A modern cheminformatics dashboard for rendering molecules and reactions, comput
 ### Comparator
 
 <p align="center">
-  <div style="display: inline-block; background: #e8e8e8; border-radius: 8px; padding: 6px 6px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.1);">
-    <div style="display: flex; align-items: center; gap: 5px; padding: 6px 8px;">
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff5f57; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #febc2e; display: inline-block;"></span>
-      <span style="width: 8px; height: 8px; border-radius: 50%; background: #28c840; display: inline-block;"></span>
-    </div>
-    <img src="./assets/compare-bar.png" alt="Side-by-side molecule comparison" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
-  </div>
+  <img src="./assets/compare-bar.png" alt="Side-by-side molecule comparison" width="800" style="display: block; border-radius: 6px; overflow: hidden;" />
 </p>
 
 *Pin two molecules to compare structures and properties side by side.*
@@ -206,7 +178,6 @@ See [app/api/README.md](./app/api/README.md) for request/response schemas.
 
 ## Tech stack
 
-| | |
 | --- | --- |
 | [Next.js 16](https://nextjs.org/) | React framework |
 | [OpenChemLib](https://github.com/actelion/openchemlib) | Rendering and chemistry calculations |
