@@ -468,7 +468,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
                 height={20}
                 interval="preserveStartEnd"
               />
-              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "mw", data: mwData, displayOptions, reactionArrowStyle }) as React.ComponentType} />
+              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "mw", data: mwData, displayOptions, reactionArrowStyle }) as (props: unknown) => React.ReactNode} />
               <Bar
                 dataKey="count"
                 fill="var(--chart-1)"
@@ -518,7 +518,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
                 height={20}
                 interval="preserveStartEnd"
               />
-              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "logP", data: logPData, displayOptions, reactionArrowStyle }) as React.ComponentType} />
+              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "logP", data: logPData, displayOptions, reactionArrowStyle }) as (props: unknown) => React.ReactNode} />
               <Bar
                 dataKey="count"
                 fill="var(--chart-2)"
@@ -568,7 +568,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
                 height={20}
                 interval="preserveStartEnd"
               />
-              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "tpsa", data: tpsaData, displayOptions, reactionArrowStyle }) as React.ComponentType} />
+              <ChartTooltip cursor={false} content={HistogramBarTooltipContent({ plotMolecules, property: "tpsa", data: tpsaData, displayOptions, reactionArrowStyle }) as (props: unknown) => React.ReactNode} />
               <Bar
                 dataKey="count"
                 fill="var(--chart-4)"
@@ -611,7 +611,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
               <XAxis type="number" dataKey="x" hide tick={{ fontSize: 6 }} />
               <YAxis type="number" dataKey="y" hide tick={{ fontSize: 6 }} />
               <ZAxis type="number" dataKey="z" range={[5, 8]} />
-              <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "MW", yLabel: "LogP" }) as React.ComponentType} />
+              <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "MW", yLabel: "LogP" }) as (props: unknown) => React.ReactNode} />
               <Scatter
                 data={mwLogPScatterData}
                 fill="var(--chart-1)"
@@ -649,7 +649,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
               <XAxis type="number" dataKey="x" hide tick={{ fontSize: 6 }} />
               <YAxis type="number" dataKey="y" hide tick={{ fontSize: 6 }} />
               <ZAxis type="number" dataKey="z" range={[5, 8]} />
-              <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "TPSA", yLabel: "LogP" }) as React.ComponentType} />
+              <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "TPSA", yLabel: "LogP" }) as (props: unknown) => React.ReactNode} />
               <Scatter
                 data={tpsaLogPScatterData}
                 fill="var(--chart-4)"
@@ -730,7 +730,7 @@ export function PropertyCharts({ molecules, hoveredMolecule, onMoleculeClick, on
                 <XAxis type="number" dataKey="x" hide tick={{ fontSize: 6 }} />
                 <YAxis type="number" dataKey="y" hide tick={{ fontSize: 6 }} />
                 <ZAxis type="number" dataKey="z" range={[5, 8]} />
-                <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "UMAP 1", yLabel: "UMAP 2" }) as React.ComponentType} />
+                <ChartTooltip cursor={{ strokeDasharray: "3 3" }} content={ScatterTooltipContent({ molecules, displayOptions, reactionArrowStyle, xLabel: "UMAP 1", yLabel: "UMAP 2" }) as (props: unknown) => React.ReactNode} />
                 <Scatter
                   data={umapScatterData}
                   fill="var(--chart-5)"

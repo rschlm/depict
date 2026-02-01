@@ -1131,7 +1131,7 @@ function HomeContent() {
                           URL.revokeObjectURL(url);
                         }}
                       >
-                        <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden alt="" />
+                        <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
                         {filtersApplied ? "Export filtered as SVG (ZIP)" : "Export as SVG (ZIP)"}
                       </DropdownMenuItem>
                       <DropdownMenuItem
@@ -1204,7 +1204,7 @@ function HomeContent() {
                             }}
                             className="text-muted-foreground"
                           >
-                            <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden alt="" />
+                            <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
                             Export all as SVG (ZIP) ({molecules.length.toLocaleString()})
                           </DropdownMenuItem>
                         </>

@@ -165,7 +165,7 @@ export function SelectionToolbar({
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={handleExportSVGZip}>
-              <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden alt="" />
+              <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
               Export as SVG (ZIP)
             </DropdownMenuItem>
           </DropdownMenuContent>

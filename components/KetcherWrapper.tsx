@@ -98,17 +98,19 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
         if (!isReady || !editorRef.current || !initialMolecule) return;
 
         const loadMolecule = async () => {
+            const editor = editorRef.current;
+            if (!editor) return;
             try {
                 const isMolfile = initialMolecule.includes("V2000") || initialMolecule.includes("V3000");
 
                 if (isMolfile) {
-                    await editorRef.current.setMolecule(initialMolecule);
+                    await editor.setMolecule(initialMolecule);
                 } else {
                     // Convert SMILES to molfile using OpenChemLib
                     const { Molecule } = await import('openchemlib');
                     const mol = Molecule.fromSmiles(initialMolecule);
                     const molfile = mol.toMolfile();
-                    await editorRef.current.setMolecule(molfile);
+                    await editor.setMolecule(molfile);
                 }
             } catch {
                 // Failed to load molecule
