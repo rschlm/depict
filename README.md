@@ -5,7 +5,7 @@
 **Visualize and analyze chemical structures from SMILES**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/schlama/chem-depict?style=flat)](https://github.com/schlama/chem-depict/issues)
+[![GitHub issues](https://img.shields.io/github/issues/rschlm/depict?style=flat)](https://github.com/rschlm/depict/issues)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white&style=flat)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white&style=flat)](https://nextjs.org/)
 
