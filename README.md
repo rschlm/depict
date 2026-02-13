@@ -159,8 +159,6 @@ npm start
 
 </details>
 
----
-
 ## REST API
 
 For AI agents and automation. Base path: `/api` (relative to deployed URL).
@@ -172,21 +170,6 @@ For AI agents and automation. Base path: `/api` (relative to deployed URL).
 | `/api/deduplicate` | POST | Remove duplicate SMILES (canonical or string mode) |
 
 See [app/api/README.md](./app/api/README.md) for request/response schemas.
-
----
-
-## Tech stack
-
-| | |
-| [Next.js 16](https://nextjs.org/) | React framework |
-| [OpenChemLib](https://github.com/actelion/openchemlib) | Rendering and chemistry calculations |
-| [Ketcher](https://github.com/epam/ketcher) | Structure editor |
-| [Zustand](https://github.com/pmndrs/zustand) | State management |
-| [Tailwind CSS](https://tailwindcss.com/) | Styling |
-| [Radix UI](https://www.radix-ui.com/) | Accessible components |
-| [Recharts](https://recharts.org/) | Property charts |
-
----
 
 ## Project structure
 
@@ -201,13 +184,9 @@ constants/     # UI constants, samples
 hooks/         # useCachedSVG, useMediaQuery
 ```
 
----
-
 ## Issues
 
 Found a bug, have a feature request, or want to contribute? [Open an issue](https://github.com/rschlm/depict/issues) on GitHub. We welcome bug reports, suggestions, and pull requests.
-
----
 
 ## License
 
