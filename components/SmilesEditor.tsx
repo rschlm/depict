@@ -16,7 +16,8 @@ interface SmilesEditorProps {
     className?: string;
     minHeight?: string;
     maxHeight?: string;
-    invalidSmiles?: string[]; // Array of invalid SMILES strings
+    invalidSmiles?: string[];
+    onImagePaste?: (file: File) => void;
 }
 
 // Define custom tags for SMILES atoms (must be before language definition)
@@ -119,76 +120,76 @@ const smilesLanguage = StreamLanguage.define({
     }
 });
 
-// Custom theme matching app's background
-const smilesTheme = EditorView.theme(
-    {
-        "&": {
-            backgroundColor: "hsl(var(--background))",
-            color: "hsl(var(--foreground))",
-            fontSize: "12px",
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Monaco', monospace",
+function createSmilesTheme(isDark: boolean) {
+    return EditorView.theme(
+        {
+            "&": {
+                backgroundColor: "hsl(var(--background))",
+                color: "hsl(var(--foreground))",
+                fontSize: "12px",
+                fontFamily: "'JetBrains Mono', 'Fira Code', 'Monaco', monospace",
+            },
+            ".cm-content": {
+                minHeight: "52px",
+                padding: "10px 12px",
+                caretColor: "#818cf8",
+            },
+            ".cm-line": {
+                padding: "0",
+            },
+            "&.cm-focused .cm-cursor": {
+                borderLeftColor: "#818cf8",
+                borderLeftWidth: "2px",
+            },
+            "&.cm-focused .cm-selectionBackground, ::selection": {
+                backgroundColor: isDark ? "#334155 !important" : "rgba(99, 102, 241, 0.2) !important",
+            },
+            ".cm-selectionBackground": {
+                backgroundColor: isDark ? "#1e293b" : "rgba(99, 102, 241, 0.12)",
+            },
+            ".cm-gutters": {
+                backgroundColor: "hsl(var(--muted) / 0.3)",
+                borderRight: "1px solid hsl(var(--border))",
+                color: "hsl(var(--muted-foreground) / 0.5)",
+                paddingRight: "8px",
+                paddingLeft: "4px",
+            },
+            ".cm-lineNumbers": {
+                minWidth: "30px",
+            },
+            ".cm-lineNumbers .cm-gutterElement": {
+                fontSize: "11px",
+                padding: "0 4px",
+                minWidth: "24px",
+                textAlign: "right",
+            },
+            ".cm-activeLineGutter": {
+                backgroundColor: "hsl(var(--muted) / 0.5)",
+                color: "hsl(var(--muted-foreground))",
+            },
+            ".cm-scroller": {
+                overflow: "visible !important",
+            },
+            "&.cm-focused": {
+                outline: "none",
+            },
+            ".cm-placeholder": {
+                color: "hsl(var(--muted-foreground))",
+                fontStyle: "normal",
+            },
+            ".cm-invalid-smiles-line": {
+                backgroundColor: "rgba(239, 68, 68, 0.1)",
+                borderLeft: "3px solid rgb(239, 68, 68)",
+                paddingLeft: "8px",
+            },
+            ".cm-invalid-smiles-underline": {
+                textDecoration: "wavy underline rgb(239, 68, 68)",
+                textDecorationSkipInk: "none",
+            },
         },
-        ".cm-content": {
-            minHeight: "52px",
-            padding: "10px 12px",
-            caretColor: "#818cf8",
-        },
-        ".cm-line": {
-            padding: "0",
-        },
-        "&.cm-focused .cm-cursor": {
-            borderLeftColor: "#818cf8",
-            borderLeftWidth: "2px",
-        },
-        "&.cm-focused .cm-selectionBackground, ::selection": {
-            backgroundColor: "#334155 !important",
-        },
-        ".cm-selectionBackground": {
-            backgroundColor: "#1e293b",
-        },
-        ".cm-gutters": {
-            backgroundColor: "hsl(var(--muted) / 0.3)",
-            borderRight: "1px solid hsl(var(--border))",
-            color: "hsl(var(--muted-foreground) / 0.5)",
-            paddingRight: "8px",
-            paddingLeft: "4px",
-        },
-        ".cm-lineNumbers": {
-            minWidth: "30px",
-        },
-        ".cm-lineNumbers .cm-gutterElement": {
-            fontSize: "11px",
-            padding: "0 4px",
-            minWidth: "24px",
-            textAlign: "right",
-        },
-        ".cm-activeLineGutter": {
-            backgroundColor: "hsl(var(--muted) / 0.5)",
-            color: "hsl(var(--muted-foreground))",
-        },
-        ".cm-scroller": {
-            overflow: "visible !important",
-        },
-        "&.cm-focused": {
-            outline: "none",
-        },
-        ".cm-placeholder": {
-            color: "hsl(var(--muted-foreground))",
-            fontStyle: "normal",
-        },
-        // Invalid line highlighting
-        ".cm-invalid-smiles-line": {
-            backgroundColor: "rgba(239, 68, 68, 0.1)", // red with opacity
-            borderLeft: "3px solid rgb(239, 68, 68)", // red-500
-            paddingLeft: "8px",
-        },
-        ".cm-invalid-smiles-underline": {
-            textDecoration: "wavy underline rgb(239, 68, 68)",
-            textDecorationSkipInk: "none",
-        },
-    },
-    { dark: true }
-);
+        { dark: isDark }
+    );
+}
 
 // Highlight colors: light theme (darker for white bg) vs dark theme
 const HIGHLIGHT_COLORS = {
@@ -329,6 +330,7 @@ export function SmilesEditor({
     minHeight = "52px",
     maxHeight = "70vh",
     invalidSmiles = [],
+    onImagePaste,
 }: SmilesEditorProps) {
     const [isFocused, setIsFocused] = useState(false);
     const { resolvedTheme } = useTheme();
@@ -340,13 +342,13 @@ export function SmilesEditor({
         [invalidSmiles]
     );
 
-    // Theme-dependent syntax highlighting
+    const smilesTheme = useMemo(() => createSmilesTheme(isDark), [isDark]);
+
     const smilesHighlighting = useMemo(
         () => getSmilesHighlighting(isDark),
         [isDark]
     );
 
-    // Extensions for CodeMirror
     const extensions = useMemo(
         () => [
             smilesLanguage,
@@ -358,8 +360,23 @@ export function SmilesEditor({
                     onChange(update.state.doc.toString());
                 }
             }),
+            ...(onImagePaste ? [EditorView.domEventHandlers({
+                paste(event) {
+                    const items = event.clipboardData?.items;
+                    if (!items) return false;
+                    for (const item of items) {
+                        if (item.type.startsWith("image/")) {
+                            event.preventDefault();
+                            const file = item.getAsFile();
+                            if (file) onImagePaste(file);
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+            })] : []),
         ],
-        [smilesHighlighting, validationExtension, onChange]
+        [smilesHighlighting, validationExtension, onChange, onImagePaste]
     );
 
     return (

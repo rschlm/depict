@@ -21,7 +21,7 @@ import {
 interface CsvExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  molecules: Array<{ id: string; smiles: string; properties: ExportProperties }>;
+  molecules: Array<{ id: string; smiles: string; properties: ExportProperties; isReaction: boolean; reactionMeta?: import("@/utils/chemUtils").ReactionMetadata; name?: string; tags?: string[] }>;
   filename?: string;
 }
 

@@ -17,6 +17,7 @@ import {
   rectSortingStrategy,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
+import { motion, AnimatePresence } from "motion/react";
 import { MoleculeCard } from "./MoleculeCard";
 import { SortableMoleculeCard } from "./SortableMoleculeCard";
 import { CompareBar } from "./CompareBar";
@@ -26,11 +27,17 @@ import { MOLECULE_CARD, VIRTUALIZATION, MIN_CARD_WIDTH, getCardDimensionsFromCar
 import type { MoleculeData } from "@/store/useChemStore";
 import type { MoleculeProperty } from "@/utils/chemUtils";
 
-const SORT_KEYS = ["mw", "logP", "tpsa", "logS", "rotatableBonds", "donorCount", "acceptorCount", "stereoCenterCount"] as const;
+const SORT_KEYS = ["mw", "logP", "tpsa", "logS", "rotatableBonds", "donorCount", "acceptorCount", "stereoCenterCount", "stepCount", "atomEconomy", "numComponents"] as const;
 type SortKey = (typeof SORT_KEYS)[number];
-void SORT_KEYS; // Used for SortKey type
+void SORT_KEYS;
 
 function getSortValue(m: MoleculeData, key: SortKey): number | null {
+  if (key === "stepCount") return m.reactionMeta?.numSteps ?? null;
+  if (key === "atomEconomy") return m.reactionMeta?.atomEconomy ?? null;
+  if (key === "numComponents") {
+    const rm = m.reactionMeta;
+    return rm ? rm.numReactants + rm.numProducts + rm.numAgents : null;
+  }
   const p = m.properties as MoleculeProperty | null | undefined;
   if (!p) return null;
   const v = (p as unknown as Record<string, number>)[key];
@@ -39,28 +46,44 @@ function getSortValue(m: MoleculeData, key: SortKey): number | null {
 
 interface MoleculeGridProps {
   className?: string;
-  /** Molecules to display; defaults to store's filteredMolecules */
   molecules?: MoleculeData[];
   displayOptions?: DepictorOptions;
   onMoleculeClick?: (molecule: MoleculeData) => void;
   onMoleculeHover?: (molecule: MoleculeData | null) => void;
+  onFindSimilar?: (molecule: MoleculeData) => void;
   hideActionButtons?: boolean;
   hideProperties?: boolean;
   selectedIds?: Set<string>;
   onSelectionChange?: (ids: Set<string>) => void;
   lastClickedIndex?: number | null;
   onLastClickedIndexChange?: (index: number | null) => void;
-  /** When sort is "input", called with reordered molecules to update SMILES input */
   onReorder?: (reordered: MoleculeData[]) => void;
 }
 
-export function MoleculeGrid({ className = "", molecules: moleculesProp, displayOptions, onMoleculeClick, onMoleculeHover, hideActionButtons = false, hideProperties = false, selectedIds = new Set(), onSelectionChange, lastClickedIndex = null, onLastClickedIndexChange, onReorder }: MoleculeGridProps) {
+const cardVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: Math.min(i, 20) * 0.03, duration: 0.25, ease: [0, 0, 0.2, 1] as const },
+  }),
+};
+
+export function MoleculeGrid({ className = "", molecules: moleculesProp, displayOptions, onMoleculeClick, onMoleculeHover, onFindSimilar, hideActionButtons = false, hideProperties = false, selectedIds = new Set(), onSelectionChange, lastClickedIndex = null, onLastClickedIndexChange, onReorder }: MoleculeGridProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const { filteredMolecules, cardsPerRow, sortBy, sortOrder } = useChemStore();
+  const { filteredMolecules, cardsPerRow, sortBy, sortOrder, similarityScores } = useChemStore();
   const molecules = moleculesProp ?? filteredMolecules;
 
   const sortedMolecules = useMemo(() => {
     if (sortBy === "input") return [...molecules];
+    if (sortBy === "similarity") {
+      const list = [...molecules];
+      return list.sort((a, b) => {
+        const sa = similarityScores[a.id] ?? 0;
+        const sb = similarityScores[b.id] ?? 0;
+        return sortOrder === "asc" ? sa - sb : sb - sa;
+      });
+    }
     const key = sortBy as SortKey;
     const list = [...molecules];
     return list.sort((a, b) => {
@@ -72,7 +95,7 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
       const cmp = va - vb;
       return sortOrder === "asc" ? cmp : -cmp;
     });
-  }, [molecules, sortBy, sortOrder]);
+  }, [molecules, sortBy, sortOrder, similarityScores]);
 
   const [startOffset, setStartOffset] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -169,13 +192,91 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
     [sortedMolecules, onReorder]
   );
 
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleGridKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const total = sortedMolecules.length;
+      if (total === 0) return;
+
+      let next = focusedIndex;
+      switch (e.key) {
+        case "ArrowRight":
+          e.preventDefault();
+          next = Math.min(focusedIndex + 1, total - 1);
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          next = Math.max(focusedIndex - 1, 0);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          next = Math.min(focusedIndex + columns, total - 1);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          next = Math.max(focusedIndex - columns, 0);
+          break;
+        case "Enter":
+          e.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < total) {
+            onMoleculeClick?.(sortedMolecules[focusedIndex]);
+          }
+          return;
+        case " ":
+          e.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < total && onSelectionChange) {
+            const id = sortedMolecules[focusedIndex].id;
+            const newIds = new Set(selectedIds);
+            if (newIds.has(id)) newIds.delete(id);
+            else newIds.add(id);
+            onSelectionChange(newIds);
+          }
+          return;
+        case "p":
+        case "P":
+          if (focusedIndex >= 0 && focusedIndex < total) {
+            const mol = sortedMolecules[focusedIndex];
+            const { pinnedMolecules, pinMolecule, unpinMolecule } = useChemStore.getState();
+            if (pinnedMolecules.some((m) => m.id === mol.id)) {
+              unpinMolecule(mol.id);
+            } else {
+              pinMolecule(mol);
+            }
+          }
+          return;
+        case "Escape":
+          setFocusedIndex(-1);
+          gridContainerRef.current?.blur();
+          return;
+        default:
+          return;
+      }
+      if (next !== focusedIndex) {
+        setFocusedIndex(next);
+        const rowIndex = Math.floor(next / columns);
+        rowVirtualizer.scrollToIndex(rowIndex, { align: "auto" });
+      }
+    },
+    [focusedIndex, sortedMolecules, columns, onMoleculeClick, onSelectionChange, selectedIds, rowVirtualizer]
+  );
+
   const isSortable = sortBy === "input" && onReorder != null;
 
   // Sortable grid: render all cards (no virtualization) when sort is input
   if (isSortable) {
     const totalHeight = rowCount * (adjustedCardHeight + gap) - gap;
     return (
-      <div ref={parentRef} className={`w-full ${className}`}>
+      <div
+        ref={(el) => {
+          (parentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+          (gridContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        }}
+        className={`w-full outline-none ${className}`}
+        tabIndex={0}
+        onKeyDown={handleGridKeyDown}
+      >
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={sortedMolecules.map((m) => m.id)} strategy={rectSortingStrategy}>
             <div
@@ -189,7 +290,15 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
               }}
             >
               {sortedMolecules.map((molecule, index) => (
-                <div key={molecule.id} style={{ height: adjustedCardHeight }}>
+                <motion.div
+                  key={molecule.id}
+                  style={{ height: adjustedCardHeight }}
+                  custom={index}
+                  initial="hidden"
+                  animate="visible"
+                  variants={cardVariants}
+                  className={focusedIndex === index ? "ring-2 ring-primary/50 rounded-md" : ""}
+                >
                   <SortableMoleculeCard
                     molecule={molecule}
                     displayOptions={displayOptions}
@@ -202,8 +311,10 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
                     onMoleculeHover={handleMoleculeHover}
                     isSelected={selectedIds.has(molecule.id)}
                     onSelect={onSelectionChange ? (e) => handleSelect(molecule, index, e) : undefined}
+                    onFindSimilar={onFindSimilar}
+                    similarityScore={similarityScores[molecule.id] ?? null}
                   />
-                </div>
+                </motion.div>
               ))}
             </div>
           </SortableContext>
@@ -216,8 +327,13 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
   // Virtualized grid for non-input sort
   return (
     <div
-      ref={parentRef}
-      className={`w-full ${className}`}
+      ref={(el) => {
+        (parentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        (gridContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }}
+      className={`w-full outline-none ${className}`}
+      tabIndex={0}
+      onKeyDown={handleGridKeyDown}
     >
       <div
         style={{
@@ -258,8 +374,15 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
                 {rowMolecules.map((molecule, colIndex) => {
                   const index = startIndex + colIndex;
                   return (
-                    <MoleculeCard
+                    <motion.div
                       key={molecule.id}
+                      custom={colIndex}
+                      initial="hidden"
+                      animate="visible"
+                      variants={cardVariants}
+                      className={focusedIndex === index ? "ring-2 ring-primary/50 rounded-md" : ""}
+                    >
+                    <MoleculeCard
                       molecule={molecule}
                       displayOptions={displayOptions}
                       hideActionButtons={hideActionButtons}
@@ -271,7 +394,10 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
                       onMoleculeHover={handleMoleculeHover}
                       isSelected={selectedIds.has(molecule.id)}
                       onSelect={onSelectionChange ? (e) => handleSelect(molecule, index, e) : undefined}
+                      onFindSimilar={onFindSimilar}
+                      similarityScore={similarityScores[molecule.id] ?? null}
                     />
+                    </motion.div>
                   );
                 })}
               </div>

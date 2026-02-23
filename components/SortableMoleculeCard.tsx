@@ -18,6 +18,8 @@ interface SortableMoleculeCardProps {
   onMoleculeHover?: (molecule: MoleculeData | null) => void;
   isSelected?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
+  onFindSimilar?: (molecule: MoleculeData) => void;
+  similarityScore?: number | null;
 }
 
 export function SortableMoleculeCard(props: SortableMoleculeCardProps) {

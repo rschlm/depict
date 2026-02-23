@@ -9,16 +9,13 @@ import { Save, X } from "lucide-react";
 import { KetcherErrorBoundary } from "./KetcherErrorBoundary";
 import "ketcher-react/dist/index.css";
 
-// Suppress Ketcher's internal setState warnings at module level
 const originalError = console.error;
 const originalWarn = console.warn;
 
 if (typeof window !== 'undefined') {
     console.error = (...args: unknown[]) => {
         const message = args[0];
-        // Convert to string for checking
         const messageStr = typeof message === 'string' ? message : String(message);
-
         if (
             messageStr.includes('Cannot update a component') ||
             messageStr.includes('while rendering a different component') ||
@@ -38,7 +35,6 @@ if (typeof window !== 'undefined') {
     console.warn = (...args: unknown[]) => {
         const message = args[0];
         const messageStr = typeof message === 'string' ? message : String(message);
-
         if (
             messageStr.includes('KetcherLogger') ||
             messageStr.includes('Ketcher') ||
@@ -50,16 +46,17 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// detailed-fix: Mock window.Ketcher globally to prevent KetcherLogger from throwing during render
-// This ensures the global object exists before ANY component renders
 if (typeof window !== 'undefined') {
     const win = window as unknown as Record<string, unknown>;
-    if (!win.Ketcher) {
-        win.Ketcher = {};
-    }
-    if (!win.ketcher) {
-        win.ketcher = {};
-    }
+    if (!win.Ketcher) win.Ketcher = {};
+    if (!win.ketcher) win.ketcher = {};
+}
+
+interface KetcherEditorRef {
+    getSmiles: () => Promise<string>;
+    getMolfile: () => Promise<string>;
+    setMolecule: (mol: string) => Promise<void>;
+    getRxn?: () => Promise<string>;
 }
 
 interface KetcherWrapperProps {
@@ -69,31 +66,21 @@ interface KetcherWrapperProps {
 }
 
 export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrapperProps) {
-
-    // Create a fresh service provider for each instance to avoid initialization issues
-    // Use useState with function to ensure it's only created once per mount
     const [structServiceProvider] = useState(() => new StandaloneStructServiceProvider());
-
-
-    const editorRef = useRef<{ getSmiles: () => Promise<string>; getMolfile: () => Promise<string>; setMolecule: (mol: string) => Promise<void> } | null>(null);
+    const editorRef = useRef<KetcherEditorRef | null>(null);
     const [isReady, setIsReady] = useState(false);
 
-    // Ref callback to capture Ketcher instance
-    const setEditorRef = useCallback((editor: { getSmiles: () => Promise<string>; getMolfile: () => Promise<string>; setMolecule: (mol: string) => Promise<void> } | null) => {
+    const setEditorRef = useCallback((editor: KetcherEditorRef | null) => {
         if (editor) {
             editorRef.current = editor;
-            // Manual binding to ensure KetcherLogger can find the instance
-            // This fixes "Ketcher needs to be initialized" errors during async operations
             if (typeof window !== 'undefined') {
                 (window as unknown as Record<string, unknown>).Ketcher = editor;
-                (window as unknown as Record<string, unknown>).ketcher = editor; // Bind both cases just to be safe
+                (window as unknown as Record<string, unknown>).ketcher = editor;
             }
-            // Give Ketcher time to fully initialize
             setTimeout(() => setIsReady(true), 500);
         }
     }, []);
 
-    // Load molecule when ready
     useEffect(() => {
         if (!isReady || !editorRef.current || !initialMolecule) return;
 
@@ -102,12 +89,25 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
             if (!editor) return;
             try {
                 const isMolfile = initialMolecule.includes("V2000") || initialMolecule.includes("V3000");
+                const isRxn = initialMolecule.includes("$RXN");
 
-                if (isMolfile) {
+                if (isMolfile || isRxn) {
                     await editor.setMolecule(initialMolecule);
                 } else {
-                    // Convert SMILES to molfile using OpenChemLib
-                    const { Molecule } = await import('openchemlib');
+                    const { Molecule, Reaction } = await import('openchemlib');
+                    const { isReactionSmiles } = await import('@/utils/chemUtils');
+
+                    if (isReactionSmiles(initialMolecule) && !initialMolecule.includes('>>')) {
+                        try {
+                            const rxn = Reaction.fromSmiles(initialMolecule);
+                            if (!rxn.isEmpty()) {
+                                const rxnFile = rxn.toRxn();
+                                await editor.setMolecule(rxnFile);
+                                return;
+                            }
+                        } catch { /* fallback to molecule */ }
+                    }
+
                     const mol = Molecule.fromSmiles(initialMolecule);
                     const molfile = mol.toMolfile();
                     await editor.setMolecule(molfile);
@@ -124,19 +124,36 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
         if (!editorRef.current || !onSave || !isReady) return;
 
         try {
+            // Try to get RXN first (if the editor has a reaction arrow)
+            if (editorRef.current.getRxn) {
+                try {
+                    const rxnData = await editorRef.current.getRxn();
+                    if (rxnData && rxnData.includes("$RXN")) {
+                        const { Reaction } = await import('openchemlib');
+                        const reaction = Reaction.fromRxn(rxnData);
+                        if (!reaction.isEmpty()) {
+                            const smiles = reaction.toSmiles();
+                            onSave(smiles, rxnData);
+                            return;
+                        }
+                    }
+                } catch {
+                    // Fall through to molecule save
+                }
+            }
+
             const smiles = await editorRef.current.getSmiles();
             const molfile = await editorRef.current.getMolfile();
             onSave(smiles, molfile);
         } catch {
-            alert("Failed to save molecule. Please check the structure.");
+            alert("Failed to save structure. Please check the drawing.");
         }
     };
 
     return (
         <div className="flex flex-col h-full">
-            {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 bg-background/95">
-                <h2 className="text-sm font-semibold">Molecule Editor</h2>
+                <h2 className="text-sm font-semibold">Structure Editor</h2>
                 <div className="flex items-center gap-2">
                     <Button
                         onClick={handleSave}
@@ -155,7 +172,6 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
                 </div>
             </div>
 
-            {/* Ketcher Editor */}
             <div className="flex-1 relative">
                 <KetcherErrorBoundary>
                     <Editor

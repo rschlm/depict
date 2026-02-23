@@ -15,7 +15,11 @@ export type SortBy =
   | "rotatableBonds"
   | "donorCount"
   | "acceptorCount"
-  | "stereoCenterCount";
+  | "stereoCenterCount"
+  | "similarity"
+  | "stepCount"
+  | "atomEconomy"
+  | "numComponents";
 
 export interface UrlFilterState {
   sortBy: SortBy;
@@ -49,6 +53,7 @@ const SORT_KEYS: SortBy[] = [
   "donorCount",
   "acceptorCount",
   "stereoCenterCount",
+  "similarity",
 ];
 
 function parseNum(value: string | null): number | null {

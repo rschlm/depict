@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { Molecule } from "openchemlib";
+import { Molecule, Reaction } from "openchemlib";
 
 export interface ParsedMoleculeData {
     smiles: string;
@@ -125,6 +125,71 @@ export async function parseSDF(file: File): Promise<ParsedMoleculeData[]> {
 }
 
 /**
+ * Parse RXN (Reaction Data File) format -- single reaction per file.
+ * Contains $RXN header, counts line, then $MOL blocks for reactants and products.
+ */
+export async function parseRXN(file: File): Promise<ParsedMoleculeData[]> {
+    const text = await file.text();
+    try {
+        const reaction = Reaction.fromRxn(text);
+        if (reaction.isEmpty()) return [];
+        const smiles = reaction.toSmiles();
+        return [{ smiles }];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Parse RDF (Reaction Data File) format -- multiple reactions per file.
+ * Each reaction block starts with $RFMT / $RXN and is separated by $RFMT.
+ */
+export async function parseRDF(file: File): Promise<ParsedMoleculeData[]> {
+    const text = await file.text();
+    const molecules: ParsedMoleculeData[] = [];
+
+    const blocks = text.split(/\$RFMT/);
+    for (const block of blocks) {
+        const trimmed = block.trim();
+        if (!trimmed) continue;
+
+        const rxnStart = trimmed.indexOf("$RXN");
+        if (rxnStart === -1) continue;
+
+        const rxnBlock = trimmed.substring(rxnStart);
+
+        const properties: Record<string, unknown> = {};
+        const dataPart = trimmed.substring(0, rxnStart);
+        const dataLines = dataPart.split("\n");
+        let currentTag = "";
+        for (const line of dataLines) {
+            const l = line.trim();
+            if (l.startsWith("$DTYPE")) {
+                currentTag = l.replace("$DTYPE", "").trim();
+            } else if (l.startsWith("$DATUM") && currentTag) {
+                properties[currentTag] = l.replace("$DATUM", "").trim();
+                currentTag = "";
+            }
+        }
+
+        try {
+            const reaction = Reaction.fromRxn(rxnBlock);
+            if (!reaction.isEmpty()) {
+                const smiles = reaction.toSmiles();
+                molecules.push({
+                    smiles,
+                    properties: Object.keys(properties).length > 0 ? properties : undefined,
+                });
+            }
+        } catch {
+            // Skip invalid reaction blocks
+        }
+    }
+
+    return molecules;
+}
+
+/**
  * Detect file type and parse accordingly
  */
 export async function parseChemFile(file: File): Promise<ParsedMoleculeData[]> {
@@ -134,6 +199,10 @@ export async function parseChemFile(file: File): Promise<ParsedMoleculeData[]> {
         return parseCSV(file);
     } else if (extension === "sdf" || extension === "sd") {
         return parseSDF(file);
+    } else if (extension === "rxn") {
+        return parseRXN(file);
+    } else if (extension === "rdf") {
+        return parseRDF(file);
     } else {
         throw new Error(`Unsupported file type: ${extension}`);
     }

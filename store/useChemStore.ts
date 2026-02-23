@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { Molecule, SSSearcherWithIndex } from "openchemlib";
-import { MoleculeProperty, isReactionSmiles, parseReactionSmiles } from "@/utils/chemUtils";
+import { MoleculeProperty, isReactionSmiles, parseReactionSmiles, computeReactionMetadata } from "@/utils/chemUtils";
+import type { ReactionMetadata } from "@/utils/chemUtils";
 import { CARDS_PER_ROW } from "@/constants/ui";
 
 export type ReactionArrowStyle = 
@@ -14,7 +15,12 @@ export interface MoleculeData {
   id: string;
   smiles: string;
   properties: MoleculeProperty | null;
-  mol: Molecule | null; // Cached OCL molecule object
+  mol: Molecule | null;
+  isReaction: boolean;
+  reactionMeta?: ReactionMetadata;
+  name?: string;
+  tags?: string[];
+  customProperties?: Record<string, string>;
 }
 
 export interface PropertyFilters {
@@ -86,10 +92,8 @@ function applyPropertyFilters(
 
   return molecules.filter((m) => {
     const p = m.properties;
-    // If no properties, check if it's a reaction (has >> or > in SMILES)
-    // Reactions should always pass through filters since they don't have properties
     if (!p) {
-      return isReactionSmiles(m.smiles);
+      return m.isReaction;
     }
     
     if (mwMin != null && p.mw < mwMin) return false;
@@ -120,14 +124,16 @@ interface ChemStore {
   /** substructureFilteredMolecules with property filters (MW/LogP) applied. */
   filteredMolecules: MoleculeData[];
   substructureQuery: string | null;
-  similarityAnchor: string | null; // ID of molecule used for similarity search
+  similarityAnchor: string | null;
+  similarityThreshold: number;
+  similarityScores: Record<string, number>;
   loading: boolean;
   /** Property calculation progress: { current, total } while loading, null otherwise. */
   loadingProgress: { current: number; total: number } | null;
   error: string | null;
   /** Timestamp when substructure search last failed (for toast trigger). */
   lastSubstructureErrorAt: number | null;
-  pinnedMolecules: MoleculeData[]; // For side-by-side comparison (max 2)
+  pinnedMolecules: MoleculeData[];
 
   // Property filters
   mwMin: number | null;
@@ -156,12 +162,13 @@ interface ChemStore {
   setCardsPerRow: (n: number) => void;
 
   // Sort (applied to filteredMolecules in UI)
-  sortBy: "input" | "mw" | "logP" | "tpsa" | "logS" | "rotatableBonds" | "donorCount" | "acceptorCount" | "stereoCenterCount";
+  sortBy: "input" | "mw" | "logP" | "tpsa" | "logS" | "rotatableBonds" | "donorCount" | "acceptorCount" | "stereoCenterCount" | "similarity" | "stepCount" | "atomEconomy" | "numComponents";
   sortOrder: "asc" | "desc";
   setSort: (sortBy: ChemStore["sortBy"], sortOrder?: "asc" | "desc") => void;
 
   // Actions
-  setMolecules: (smiles: string[]) => void;
+  setMolecules: (smiles: string[], metadata?: Array<{ name?: string; customProperties?: Record<string, string> }>) => void;
+  replaceMolecule: (id: string, newSmiles: string) => void;
   /** Reorder molecules in-place without re-parsing or recalculating properties */
   reorderMolecules: (molecules: MoleculeData[]) => void;
   calculateProperties: () => Promise<void>;
@@ -170,7 +177,10 @@ interface ChemStore {
   setPropertyFilters: (filters: Partial<PropertyFilters>) => void;
   clearPropertyFilters: () => void;
   setSimilarityAnchor: (moleculeId: string | null) => void;
-  filterBySimilarity: (threshold: number) => void;
+  filterBySimilarity: (threshold?: number) => void;
+  clearSimilarity: () => void;
+  setMoleculeName: (moleculeId: string, name: string) => void;
+  setMoleculeTags: (moleculeId: string, tags: string[]) => void;
   pinMolecule: (molecule: MoleculeData) => void;
   unpinMolecule: (moleculeId: string) => void;
   clearPinnedMolecules: () => void;
@@ -182,6 +192,8 @@ export const useChemStore = create<ChemStore>((set, get) => ({
   filteredMolecules: [],
   substructureQuery: null,
   similarityAnchor: null,
+  similarityThreshold: 0.7,
+  similarityScores: {},
   loading: false,
   loadingProgress: null,
   error: null,
@@ -221,28 +233,36 @@ export const useChemStore = create<ChemStore>((set, get) => ({
     });
   },
 
-  setMolecules: (smiles: string[]) => {
+  setMolecules: (smiles: string[], metadata?: Array<{ name?: string; customProperties?: Record<string, string> }>) => {
     const molecules: MoleculeData[] = smiles.map((smilesStr, index) => {
+      const meta = metadata?.[index];
       try {
-        // Check if it's a reaction - reactions can't be stored as Molecule objects
-        // For reactions, we store null for mol but keep the SMILES for rendering
-        if (isReactionSmiles(smilesStr)) {
-          // Daylight format (single >): use Reaction.fromSmiles for full validation
-          // Multi-step (>>): validate each step parses as molecule
+        const isRxn = isReactionSmiles(smilesStr);
+        if (isRxn) {
           if (smilesStr.includes('>>')) {
             const steps = smilesStr.split('>>').filter((s) => s.trim().length > 0);
             if (steps.length < 2) throw new Error('Invalid reaction');
-            for (const step of steps) Molecule.fromSmiles(step);
+            for (const step of steps) {
+              if (step.includes('>')) {
+                if (!parseReactionSmiles(step)) throw new Error('Invalid reaction step');
+              } else {
+                Molecule.fromSmiles(step);
+              }
+            }
           } else {
             const r = parseReactionSmiles(smilesStr);
             if (!r) throw new Error('Invalid reaction');
           }
-          
+          const reactionMeta = computeReactionMetadata(smilesStr) ?? undefined;
           return {
             id: `mol-${index}`,
             smiles: smilesStr,
             properties: null,
-            mol: null, // Reactions don't have a Molecule object
+            mol: null,
+            isReaction: true,
+            reactionMeta,
+            name: meta?.name,
+            customProperties: meta?.customProperties,
           };
         } else {
           const mol = Molecule.fromSmiles(smilesStr);
@@ -251,6 +271,9 @@ export const useChemStore = create<ChemStore>((set, get) => ({
             smiles: smilesStr,
             properties: null,
             mol,
+            isReaction: false,
+            name: meta?.name,
+            customProperties: meta?.customProperties,
           };
         }
       } catch {
@@ -259,6 +282,9 @@ export const useChemStore = create<ChemStore>((set, get) => ({
           smiles: smilesStr,
           properties: null,
           mol: null,
+          isReaction: false,
+          name: meta?.name,
+          customProperties: meta?.customProperties,
         };
       }
     });
@@ -269,6 +295,33 @@ export const useChemStore = create<ChemStore>((set, get) => ({
       molecules,
       substructureFilteredMolecules: molecules,
       filteredMolecules: applyPropertyFilters(molecules, currentFilters),
+    });
+  },
+
+  replaceMolecule: (id: string, newSmiles: string) => {
+    const { molecules } = get();
+    const updated = molecules.map((m) => {
+      if (m.id !== id) return m;
+      try {
+        const isRxn = isReactionSmiles(newSmiles);
+        if (isRxn) {
+          const reactionMeta = computeReactionMetadata(newSmiles) ?? undefined;
+          return { ...m, smiles: newSmiles, properties: null, mol: null, isReaction: true, reactionMeta };
+        }
+        const mol = Molecule.fromSmiles(newSmiles);
+        return { ...m, smiles: newSmiles, properties: null, mol, isReaction: false, reactionMeta: undefined };
+      } catch {
+        return { ...m, smiles: newSmiles, properties: null, mol: null, isReaction: false, reactionMeta: undefined };
+      }
+    });
+    const currentFilters = getCurrentFilters(get());
+    const { substructureFilteredMolecules } = get();
+    const subIds = new Set(substructureFilteredMolecules.map((m) => m.id));
+    const newSubFiltered = updated.filter((m) => subIds.has(m.id));
+    set({
+      molecules: updated,
+      substructureFilteredMolecules: newSubFiltered,
+      filteredMolecules: applyPropertyFilters(newSubFiltered, currentFilters),
     });
   },
 
@@ -555,49 +608,88 @@ export const useChemStore = create<ChemStore>((set, get) => ({
   },
 
   setSimilarityAnchor: (moleculeId: string | null) => {
+    if (!moleculeId) {
+      const { molecules, sortBy } = get();
+      const currentFilters = getCurrentFilters(get());
+      const { substructureFilteredMolecules } = get();
+      set({
+        similarityAnchor: null,
+        similarityScores: {},
+        filteredMolecules: applyPropertyFilters(substructureFilteredMolecules.length > 0 || get().substructureQuery ? substructureFilteredMolecules : molecules, currentFilters),
+        ...(sortBy === "similarity" ? { sortBy: "input" as const } : {}),
+      });
+      return;
+    }
     set({ similarityAnchor: moleculeId });
+    get().filterBySimilarity();
   },
 
-  filterBySimilarity: (threshold: number = 0.7) => {
-    const { molecules, similarityAnchor } = get();
+  filterBySimilarity: (threshold?: number) => {
+    const state = get();
+    const t = threshold ?? state.similarityThreshold;
+    const { molecules, similarityAnchor, substructureFilteredMolecules, substructureQuery } = state;
 
     if (!similarityAnchor) {
-      set({ filteredMolecules: molecules });
+      const base = substructureQuery ? substructureFilteredMolecules : molecules;
+      const currentFilters = getCurrentFilters(state);
+      set({ similarityScores: {}, similarityThreshold: t, filteredMolecules: applyPropertyFilters(base, currentFilters) });
       return;
     }
 
     const anchor = molecules.find((m) => m.id === similarityAnchor);
     if (!anchor || !anchor.mol) {
-      set({ filteredMolecules: molecules });
+      const base = substructureQuery ? substructureFilteredMolecules : molecules;
+      const currentFilters = getCurrentFilters(state);
+      set({ similarityScores: {}, similarityThreshold: t, filteredMolecules: applyPropertyFilters(base, currentFilters) });
       return;
     }
 
     const anchorIndex = anchor.mol.getIndex();
-    if (anchorIndex.length === 0) {
-      set({ filteredMolecules: molecules });
-      return;
+    const scores: Record<string, number> = {};
+    for (const mol of molecules) {
+      if (!mol.mol) { scores[mol.id] = 0; continue; }
+      try {
+        const molIndex = mol.mol.getIndex();
+        scores[mol.id] = molIndex.length > 0 && anchorIndex.length > 0
+          ? SSSearcherWithIndex.getSimilarityTanimoto(anchorIndex, molIndex)
+          : 0;
+      } catch {
+        scores[mol.id] = 0;
+      }
     }
 
-    const filtered = molecules
-      .map((mol) => {
-        if (!mol.mol) return { ...mol, similarity: 0 };
+    const base = substructureQuery ? substructureFilteredMolecules : molecules;
+    const afterSimilarity = base.filter((m) => (scores[m.id] ?? 0) >= t);
+    const currentFilters = getCurrentFilters(state);
+    set({
+      similarityScores: scores,
+      similarityThreshold: t,
+      filteredMolecules: applyPropertyFilters(afterSimilarity, currentFilters),
+    });
+  },
 
-        try {
-          const molIndex = mol.mol.getIndex();
-          if (molIndex.length === 0) return { ...mol, similarity: 0 };
+  clearSimilarity: () => {
+    const { substructureFilteredMolecules, molecules, substructureQuery, sortBy } = get();
+    const base = substructureQuery ? substructureFilteredMolecules : molecules;
+    const currentFilters = getCurrentFilters(get());
+    set({
+      similarityAnchor: null,
+      similarityScores: {},
+      filteredMolecules: applyPropertyFilters(base, currentFilters),
+      ...(sortBy === "similarity" ? { sortBy: "input" as const } : {}),
+    });
+  },
 
-          const similarity = SSSearcherWithIndex.getSimilarityTanimoto(anchorIndex, molIndex);
-          return { ...mol, similarity };
-        } catch {
-          return { ...mol, similarity: 0 };
-        }
-      })
-      .filter((mol): mol is MoleculeData & { similarity: number } => (mol as MoleculeData & { similarity: number }).similarity >= threshold)
-      .sort((a, b) => b.similarity - a.similarity)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit similarity
-      .map(({ similarity, ...mol }) => mol);
+  setMoleculeName: (moleculeId: string, name: string) => {
+    const { molecules } = get();
+    const updated = molecules.map((m) => m.id === moleculeId ? { ...m, name: name || undefined } : m);
+    set({ molecules: updated });
+  },
 
-    set({ filteredMolecules: filtered });
+  setMoleculeTags: (moleculeId: string, tags: string[]) => {
+    const { molecules } = get();
+    const updated = molecules.map((m) => m.id === moleculeId ? { ...m, tags: tags.length > 0 ? tags : undefined } : m);
+    set({ molecules: updated });
   },
 
   pinMolecule: (molecule: MoleculeData) => {

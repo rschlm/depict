@@ -32,17 +32,44 @@ export function parseReactionSmiles(smiles: string): Reaction | null {
 }
 
 export interface MoleculeProperty {
-  mw: number; // Molecular Weight
-  logP: number; // LogP
-  logPString: string; // LogP as String
-  logS: number; // LogS (aqueous solubility)
-  logSString: string; // LogS as String
-  tpsa: number; // Topological Polar Surface Area (polarSurfaceArea)
-  tpsaString: string; // TPSA as String (polarSurfaceAreaString)
-  rotatableBonds: number; // Rotatable Bond Count
-  donorCount: number; // H-Bond Donor Count
-  acceptorCount: number; // H-Bond Acceptor Count
-  stereoCenterCount: number; // Stereo Center Count
+  mw: number;
+  logP: number;
+  logPString: string;
+  logS: number;
+  logSString: string;
+  tpsa: number;
+  tpsaString: string;
+  rotatableBonds: number;
+  donorCount: number;
+  acceptorCount: number;
+  stereoCenterCount: number;
+  molecularFormula: string;
+  ro5Violations: number;
+}
+
+export interface Ro5Detail {
+  mw: boolean;
+  logP: boolean;
+  hbd: boolean;
+  hba: boolean;
+}
+
+export function getRo5Details(p: MoleculeProperty): Ro5Detail {
+  return {
+    mw: p.mw <= 500,
+    logP: p.logP <= 5,
+    hbd: p.donorCount <= 5,
+    hba: p.acceptorCount <= 10,
+  };
+}
+
+export function countRo5Violations(p: MoleculeProperty): number {
+  let v = 0;
+  if (p.mw > 500) v++;
+  if (p.logP > 5) v++;
+  if (p.donorCount > 5) v++;
+  if (p.acceptorCount > 10) v++;
+  return v;
 }
 
 export type DeduplicationMode = "canonical" | "string";
@@ -140,19 +167,31 @@ export function calculateProperties(smiles: string): MoleculeProperty | null {
 
     const props = new MoleculeProperties(mol);
     const mw = mol.getMolweight();
+    const formula = mol.getMolecularFormula().formula;
+    const donorCount = props.donorCount || 0;
+    const acceptorCount = props.acceptorCount || 0;
+    const logP = props.logP;
+
+    let ro5 = 0;
+    if (mw > 500) ro5++;
+    if (logP > 5) ro5++;
+    if (donorCount > 5) ro5++;
+    if (acceptorCount > 10) ro5++;
 
     return {
       mw,
-      logP: props.logP,
-      logPString: Array.isArray(props.logPString) ? props.logPString.join('') : String(props.logP),
+      logP,
+      logPString: Array.isArray(props.logPString) ? props.logPString.join('') : String(logP),
       logS: props.logS,
       logSString: Array.isArray(props.logSString) ? props.logSString.join('') : String(props.logS),
       tpsa: props.polarSurfaceArea,
       tpsaString: Array.isArray(props.polarSurfaceAreaString) ? props.polarSurfaceAreaString.join('') : String(props.polarSurfaceArea),
       rotatableBonds: props.rotatableBondCount,
-      donorCount: props.donorCount || 0,
-      acceptorCount: props.acceptorCount || 0,
+      donorCount,
+      acceptorCount,
       stereoCenterCount: props.stereoCenterCount || 0,
+      molecularFormula: formula,
+      ro5Violations: ro5,
     };
   } catch {
     return null;
@@ -241,6 +280,26 @@ export interface ReactionAtomBalance {
   label: string;
 }
 
+export interface ReactionComponent {
+  smiles: string;
+  role: "reactant" | "agent" | "intermediate" | "product";
+  mw: number;
+  atomCount: number;
+  formula: string;
+}
+
+export interface ReactionMetadata {
+  numSteps: number;
+  numReactants: number;
+  numProducts: number;
+  numAgents: number;
+  components: ReactionComponent[];
+  atomEconomy: number | null;
+  isBalanced: boolean;
+  balanceLabel: string;
+  hasAtomMap: boolean;
+}
+
 /**
  * Compute atom balance for a reaction (reactants vs products).
  * Excludes agents and intermediates; compares only reactant and product sides.
@@ -275,6 +334,150 @@ export function getReactionAtomBalance(
     return { balanced: true, label: "Balanced" };
   }
   return { balanced: false, label: `Unbalanced: ${imbalances.join(", ")}` };
+}
+
+/**
+ * Compute structured metadata for a reaction SMILES string.
+ * Handles both Daylight (A>B>C) and multi-step (A>>B>>C) formats.
+ */
+export function computeReactionMetadata(smiles: string): ReactionMetadata | null {
+  if (!isReactionSmiles(smiles)) return null;
+
+  const components: ReactionComponent[] = [];
+
+  const addFromReaction = (
+    reaction: Reaction,
+    reactantRole: "reactant" | "intermediate",
+    productRole: "product" | "intermediate"
+  ) => {
+    const add = (getMol: (i: number) => Molecule, count: number, role: ReactionComponent["role"]) => {
+      for (let i = 0; i < count; i++) {
+        try {
+          const mol = getMol(i);
+          components.push({
+            smiles: mol.toSmiles(),
+            role,
+            mw: mol.getMolweight(),
+            atomCount: mol.getAllAtoms(),
+            formula: mol.getMolecularFormula().formula,
+          });
+        } catch { /* skip */ }
+      }
+    };
+    add((i) => reaction.getReactant(i), reaction.getReactants(), reactantRole);
+    add((i) => reaction.getCatalyst(i), reaction.getCatalysts(), "agent");
+    add((i) => reaction.getProduct(i), reaction.getProducts(), productRole);
+  };
+
+  let numSteps = 1;
+  let detectedAtomMap = false;
+
+  if (smiles.includes(">>")) {
+    const steps = smiles.split(">>").filter((s) => s.trim().length > 0);
+    numSteps = steps.length;
+    steps.forEach((step, index) => {
+      const isFirst = index === 0;
+      const isLast = index === steps.length - 1;
+      if (step.includes(">")) {
+        const reaction = parseReactionSmiles(step);
+        if (reaction) {
+          if (!detectedAtomMap) {
+            try {
+              const mols: Molecule[] = [];
+              for (let i = 0; i < reaction.getReactants(); i++) mols.push(reaction.getReactant(i));
+              for (let i = 0; i < reaction.getProducts(); i++) mols.push(reaction.getProduct(i));
+              if (mols.some((m) => { const n = m.getAllAtoms(); for (let a = 0; a < n; a++) { if (m.getAtomMapNo(a) !== 0) return true; } return false; }))
+                detectedAtomMap = true;
+            } catch { /* skip */ }
+          }
+          addFromReaction(
+            reaction,
+            isFirst ? "reactant" : "intermediate",
+            isLast ? "product" : "intermediate"
+          );
+        }
+      } else {
+        const fragments = step.split(".").filter((s) => s.trim().length > 0);
+        const role: ReactionComponent["role"] = isFirst ? "reactant" : isLast ? "product" : "intermediate";
+        for (const frag of fragments) {
+          try {
+            const mol = Molecule.fromSmiles(frag);
+            const n = mol.getAllAtoms();
+            if (!detectedAtomMap) {
+              for (let a = 0; a < n; a++) { if (mol.getAtomMapNo(a) !== 0) { detectedAtomMap = true; break; } }
+            }
+            components.push({
+              smiles: frag,
+              role,
+              mw: mol.getMolweight(),
+              atomCount: n,
+              formula: mol.getMolecularFormula().formula,
+            });
+          } catch { /* skip */ }
+        }
+      }
+    });
+  } else {
+    // Single-step Daylight: split by > (outside brackets) then split each part by .
+    const rawParts: string[] = [];
+    let cur = "";
+    let depth = 0;
+    for (const ch of smiles) {
+      if (ch === "[") depth++;
+      else if (ch === "]") depth--;
+      else if (ch === ">" && depth === 0) { rawParts.push(cur); cur = ""; continue; }
+      cur += ch;
+    }
+    rawParts.push(cur);
+    const nonEmpty = rawParts.map((p) => p.trim()).filter(Boolean);
+    if (nonEmpty.length < 2) return null;
+
+    const reactantPart = nonEmpty[0];
+    const productPart = nonEmpty[nonEmpty.length - 1];
+    const agentParts = nonEmpty.length > 2 ? nonEmpty.slice(1, -1) : [];
+
+    const addFragments = (part: string, role: ReactionComponent["role"]) => {
+      const frags = part.split(".").filter((s) => s.trim().length > 0);
+      for (const frag of frags) {
+        try {
+          const mol = Molecule.fromSmiles(frag);
+          const n = mol.getAllAtoms();
+          if (!detectedAtomMap) {
+            for (let a = 0; a < n; a++) { if (mol.getAtomMapNo(a) !== 0) { detectedAtomMap = true; break; } }
+          }
+          components.push({ smiles: frag, role, mw: mol.getMolweight(), atomCount: n, formula: mol.getMolecularFormula().formula });
+        } catch { /* skip */ }
+      }
+    };
+
+    addFragments(reactantPart, "reactant");
+    for (const ap of agentParts) addFragments(ap, "agent");
+    addFragments(productPart, "product");
+  }
+
+  if (components.length === 0) return null;
+
+  const reactants = components.filter((c) => c.role === "reactant");
+  const products = components.filter((c) => c.role === "product");
+  const agents = components.filter((c) => c.role === "agent");
+
+  const reactantMW = reactants.reduce((sum, c) => sum + c.mw, 0);
+  const productMW = products.reduce((sum, c) => sum + c.mw, 0);
+  const atomEconomy = reactantMW > 0 ? (productMW / reactantMW) * 100 : null;
+
+  const balance = getReactionAtomBalance(components.map((c) => ({ smiles: c.smiles, type: c.role })));
+
+  return {
+    numSteps,
+    numReactants: reactants.length,
+    numProducts: products.length,
+    numAgents: agents.length,
+    components,
+    atomEconomy: atomEconomy != null ? Math.round(atomEconomy * 10) / 10 : null,
+    isBalanced: balance?.balanced ?? false,
+    balanceLabel: balance?.label ?? "Unknown",
+    hasAtomMap: detectedAtomMap,
+  };
 }
 
 /**

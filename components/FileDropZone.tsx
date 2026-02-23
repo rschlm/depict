@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Upload, FileText, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { parseChemFile } from "@/utils/fileParser";
 import { useChemStore } from "@/store/useChemStore";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -15,7 +15,6 @@ export function FileDropZone() {
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
     const { setMolecules } = useChemStore();
-    const { toast } = useToast();
 
     const handleDragOver = useCallback((e: DragEvent) => {
         e.preventDefault();
@@ -48,8 +47,7 @@ export function FileDropZone() {
 
             if (molecules.length === 0) {
                 setStatus("error");
-                toast({
-                    title: "No molecules found",
+                toast.error("No molecules found", {
                     description: `The file "${file.name}" doesn't contain valid SMILES strings.`,
                 });
                 setTimeout(() => {
@@ -60,16 +58,24 @@ export function FileDropZone() {
             }
 
             const smiles = molecules.map((m) => m.smiles);
+            const metadata = molecules.map((m) => {
+                if (!m.properties) return {};
+                const name = (m.properties["Name"] ?? m.properties["name"] ?? m.properties["IDNUMBER"] ?? m.properties["ID"]) as string | undefined;
+                const customProperties: Record<string, string> = {};
+                for (const [k, v] of Object.entries(m.properties)) {
+                    if (v != null) customProperties[k] = String(v);
+                }
+                return { name: name ? String(name) : undefined, customProperties };
+            });
 
             setProgress(90);
-            setMolecules(smiles);
+            setMolecules(smiles, metadata);
 
             setProgress(100);
             setStatus("success");
 
-            toast({
-                title: "Import successful",
-                description: `Imported ${molecules.length.toLocaleString()} molecule${molecules.length === 1 ? "" : "s"}`,
+            toast.success("Import successful", {
+                description: `Imported ${molecules.length.toLocaleString()} structure${molecules.length === 1 ? "" : "s"}`,
             });
 
             setTimeout(() => {
@@ -79,8 +85,7 @@ export function FileDropZone() {
             }, 1500);
         } catch (error) {
             setStatus("error");
-            toast({
-                title: "Import failed",
+            toast.error("Import failed", {
                 description: error instanceof Error ? error.message : "Failed to process file",
             });
             setTimeout(() => {
@@ -89,7 +94,7 @@ export function FileDropZone() {
                 setProgress(0);
             }, 2000);
         }
-    }, [setMolecules, toast]);
+    }, [setMolecules]);
 
     const handleDrop = useCallback(async (e: DragEvent) => {
         e.preventDefault();
@@ -102,16 +107,15 @@ export function FileDropZone() {
         const file = files[0];
         const extension = file.name.split(".").pop()?.toLowerCase();
 
-        if (!["csv", "sdf", "sd"].includes(extension || "")) {
-            toast({
-                title: "Unsupported file type",
-                description: "Please drop a CSV or SDF file",
+        if (!["csv", "sdf", "sd", "rxn", "rdf"].includes(extension || "")) {
+            toast.error("Unsupported file type", {
+                description: "Please use CSV, SDF, RXN, or RDF files",
             });
             return;
         }
 
         await processFile(file);
-    }, [processFile, toast]);
+    }, [processFile]);
 
     useEffect(() => {
         document.addEventListener("dragover", handleDragOver);
@@ -248,7 +252,6 @@ export function FileDropZone() {
 export function FileImportButton() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { setMolecules } = useChemStore();
-    const { toast } = useToast();
     const [isProcessing, setIsProcessing] = useState(false);
     const mdMatches = useMediaQuery("(min-width: 768px)");
     const showTooltip = !mdMatches;
@@ -260,23 +263,29 @@ export function FileImportButton() {
             const molecules = await parseChemFile(file);
 
             if (molecules.length === 0) {
-                toast({
-                    title: "No molecules found",
+                toast.error("No molecules found", {
                     description: `The file "${file.name}" doesn't contain valid SMILES strings.`,
                 });
                 return;
             }
 
             const smiles = molecules.map((m) => m.smiles);
-            setMolecules(smiles);
+            const metadata = molecules.map((m) => {
+                if (!m.properties) return {};
+                const name = (m.properties["Name"] ?? m.properties["name"] ?? m.properties["IDNUMBER"] ?? m.properties["ID"]) as string | undefined;
+                const customProperties: Record<string, string> = {};
+                for (const [k, v] of Object.entries(m.properties)) {
+                    if (v != null) customProperties[k] = String(v);
+                }
+                return { name: name ? String(name) : undefined, customProperties };
+            });
+            setMolecules(smiles, metadata);
 
-            toast({
-                title: "Import successful",
-                description: `Imported ${molecules.length.toLocaleString()} molecule${molecules.length === 1 ? "" : "s"}`,
+            toast.success("Import successful", {
+                description: `Imported ${molecules.length.toLocaleString()} structure${molecules.length === 1 ? "" : "s"}`,
             });
         } catch (error) {
-            toast({
-                title: "Import failed",
+            toast.error("Import failed", {
                 description: error instanceof Error ? error.message : "Failed to process file",
             });
         } finally {
@@ -291,10 +300,9 @@ export function FileImportButton() {
         const file = files[0];
         const extension = file.name.split(".").pop()?.toLowerCase();
 
-        if (!["csv", "sdf", "sd"].includes(extension || "")) {
-            toast({
-                title: "Unsupported file type",
-                description: "Please drop a CSV or SDF file",
+        if (!["csv", "sdf", "sd", "rxn", "rdf"].includes(extension || "")) {
+            toast.error("Unsupported file type", {
+                description: "Please use CSV, SDF, RXN, or RDF files",
             });
             return;
         }
@@ -328,7 +336,7 @@ export function FileImportButton() {
             <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.sdf,.sd"
+                accept=".csv,.sdf,.sd,.rxn,.rdf"
                 onChange={handleFileSelect}
                 className="hidden"
             />

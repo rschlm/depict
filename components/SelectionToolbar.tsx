@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Pin, X, FileText, FileCode, Table2, SlidersHorizontal, Image, CheckSquare, Square } from "lucide-react";
+import { Download, Pin, X, FileText, FileCode, Table2, SlidersHorizontal, Image, ImageDown, CheckSquare, Square } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -9,8 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { exportAllAsSDF, exportAllAsCSV, exportAllAsSMI, CSV_COLUMNS, generateFilenameFromSmiles } from "@/utils/downloadUtils";
+import { exportAllAsSDF, exportAllAsCSV, exportAllAsSMI, exportAllAsRXN, CSV_COLUMNS, generateFilenameFromSmiles } from "@/utils/downloadUtils";
+import { toast } from "sonner";
 import { generateSVG } from "@/hooks/useCachedSVG";
+import { svgToPngBlob } from "@/utils/pngExport";
 import type { MoleculeData } from "@/store/useChemStore";
 import type { DepictorOptions } from "openchemlib";
 import type { ReactionArrowStyle } from "@/store/useChemStore";
@@ -49,7 +51,19 @@ export function SelectionToolbar({
         : `${reactionCount} reaction${reactionCount === 1 ? "" : "s"} selected`;
 
   const handleExportSDF = () => {
-    exportAllAsSDF(selectedMolecules, `export_selected_${new Date().getTime()}.sdf`);
+    const skipped = exportAllAsSDF(selectedMolecules, `export_selected_${new Date().getTime()}.sdf`);
+    if (skipped > 0) {
+      toast.info(`${skipped} reaction${skipped > 1 ? "s" : ""} omitted from SDF — use RXN or SMI export for reactions`);
+    }
+  };
+
+  const handleExportRXN = () => {
+    const { exported, skippedMolecules } = exportAllAsRXN(selectedMolecules, `reactions_selected_${new Date().getTime()}.rdf`);
+    if (exported === 0) {
+      toast.info("No reactions in selection — nothing exported");
+    } else if (skippedMolecules > 0) {
+      toast.info(`Exported ${exported} reaction${exported > 1 ? "s" : ""}; ${skippedMolecules} molecule${skippedMolecules > 1 ? "s" : ""} omitted`);
+    }
   };
 
   const handleExportSMI = () => {
@@ -77,6 +91,30 @@ export function SelectionToolbar({
     const a = document.createElement("a");
     a.href = url;
     a.download = `export_selected_${new Date().getTime()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPNGZip = async () => {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    const w = 220;
+    const h = 160;
+    for (const m of selectedMolecules) {
+      const svg = generateSVG(m.smiles, w, h, displayOptions ?? {}, reactionArrowStyle);
+      if (svg) {
+        try {
+          const pngBlob = await svgToPngBlob(svg, 2);
+          const name = generateFilenameFromSmiles(m.smiles, "png");
+          zip.file(name, pngBlob);
+        } catch { /* skip failed conversions */ }
+      }
+    }
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `export_selected_png_${new Date().getTime()}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -149,6 +187,10 @@ export function SelectionToolbar({
               <FileCode className="w-3.5 h-3.5 mr-2 shrink-0" />
               Export as SMI
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportRXN}>
+              <FileText className="w-3.5 h-3.5 mr-2 shrink-0" />
+              Export reactions as RDF
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleExportCSV}
               title={`Columns: ${CSV_COLUMNS.map((c) => c.key).join(", ")}`}
@@ -167,6 +209,10 @@ export function SelectionToolbar({
             <DropdownMenuItem onClick={handleExportSVGZip}>
               <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
               Export as SVG (ZIP)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportPNGZip}>
+              <ImageDown className="w-3.5 h-3.5 mr-2 shrink-0" />
+              Export as PNG (ZIP)
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

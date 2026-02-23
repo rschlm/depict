@@ -40,7 +40,7 @@ export function getCardDimensionsFromCardsPerRow(
     const totalGap = (columns + 1) * gap;
     const width = Math.max(MIN_CARD_WIDTH, Math.floor((containerWidth - totalGap) / columns));
     const height = Math.round(width * (MOLECULE_CARD.HEIGHT / MOLECULE_CARD.WIDTH));
-    const footerMinHeight = width < 240 ? 76 : 100;
+    const footerMinHeight = width < 240 ? 52 : 72;
     const structureAreaWidth = Math.max(MIN_STRUCTURE_WIDTH, width - 32);
     const structureAreaHeight = Math.max(MIN_STRUCTURE_HEIGHT, height - footerMinHeight - 32);
     let structureWidth = Math.round(width * 0.82);
@@ -75,7 +75,7 @@ export const WORKER_CONFIG = {
 
 export const VIRTUALIZATION = {
     OVERSCAN_ROWS: 5,
-    ESTIMATED_ROW_HEIGHT: 316, // MOLECULE_CARD.HEIGHT + gap
+    ESTIMATED_ROW_HEIGHT: 296, // MOLECULE_CARD.HEIGHT + gap
 };
 
 export const CACHE = {

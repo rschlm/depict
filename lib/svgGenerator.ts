@@ -96,67 +96,85 @@ export function generateSVG(
     if (smiles.includes(">>")) {
       const steps = smiles.split(">>").filter((s) => s.trim().length > 0);
       if (steps.length < 2) return null;
-      try {
-        const extractSVGContent = (svgString: string): string => {
-          const match = svgString.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
-          return match ? match[1] : svgString;
-        };
-        const arrowLength = 20;
-        const arrowSpacing = 10;
-        const totalArrowSpace = (steps.length - 1) * (arrowLength + arrowSpacing * 2);
-        const stepWidth = Math.floor((width - totalArrowSpace) / steps.length);
-        const stepMolecules: (Molecule | null)[] = [];
-        for (const step of steps) {
-          if (step.includes(">")) {
-            stepMolecules.push(null);
-          } else {
-            try {
-              const mol = Molecule.fromSmiles(step);
-              stepMolecules.push(mol && mol.getAllAtoms() > 0 ? mol : null);
-            } catch {
+
+      const isThumbnail = width <= 120;
+
+      if (isThumbnail && steps.length > 2) {
+        try {
+          const firstStep = steps[0].includes(">") ? steps[0].split(">")[0] : steps[0];
+          const lastStep = steps[steps.length - 1].includes(">")
+            ? steps[steps.length - 1].split(">").pop()!
+            : steps[steps.length - 1];
+          const simplifiedSvg = generateSVG(`${firstStep}>${lastStep}`, width, height, displayOptions, arrowStyle);
+          if (simplifiedSvg) {
+            svg = simplifiedSvg;
+          }
+        } catch { /* fall through */ }
+      }
+
+      if (!svg) {
+        try {
+          const extractSVGContent = (svgString: string): string => {
+            const match = svgString.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
+            return match ? match[1] : svgString;
+          };
+          const arrowLength = Math.min(24, Math.max(12, Math.floor(width / (steps.length * 4))));
+          const arrowSpacing = Math.min(10, Math.max(4, Math.floor(width / (steps.length * 8))));
+          const totalArrowSpace = (steps.length - 1) * (arrowLength + arrowSpacing * 2);
+          const stepWidth = Math.max(30, Math.floor((width - totalArrowSpace) / steps.length));
+          const stepMolecules: (Molecule | null)[] = [];
+          for (const step of steps) {
+            if (step.includes(">")) {
               stepMolecules.push(null);
+            } else {
+              try {
+                const mol = Molecule.fromSmiles(step);
+                stepMolecules.push(mol && mol.getAllAtoms() > 0 ? mol : null);
+              } catch {
+                stepMolecules.push(null);
+              }
             }
           }
-        }
-        const multiStepMols = stepMolecules.filter((m): m is Molecule => m != null);
-        const multiStepHasMaps =
-          multiStepMols.length > 0 && collectMapNumbers(multiStepMols).length > 0;
-        const multiStepOpts = multiStepHasMaps
-          ? { ...displayOptions, showMapping: displayOptions?.showMapping ?? true }
-          : displayOptions;
-        const stepContents: string[] = [];
-        for (let i = 0; i < steps.length; i++) {
-          const step = steps[i];
-          let content: string | null = null;
-          if (step.includes(">")) {
-            const stepSvg = generateSVG(step, stepWidth, height, displayOptions, arrowStyle);
-            content = stepSvg ? extractSVGContent(stepSvg) : null;
-          } else {
-            const mol = stepMolecules[i];
-            if (mol && mol.getAllAtoms() > 0) {
-              content = extractSVGContent(mol.toSVG(stepWidth, height, undefined, multiStepOpts));
+          const multiStepMols = stepMolecules.filter((m): m is Molecule => m != null);
+          const multiStepHasMaps =
+            multiStepMols.length > 0 && collectMapNumbers(multiStepMols).length > 0;
+          const multiStepOpts = multiStepHasMaps
+            ? { ...displayOptions, showMapping: displayOptions?.showMapping ?? true }
+            : displayOptions;
+          const stepContents: string[] = [];
+          for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            let content: string | null = null;
+            if (step.includes(">")) {
+              const stepSvg = generateSVG(step, stepWidth, height, displayOptions, arrowStyle);
+              content = stepSvg ? extractSVGContent(stepSvg) : null;
+            } else {
+              const mol = stepMolecules[i];
+              if (mol && mol.getAllAtoms() > 0) {
+                content = extractSVGContent(mol.toSVG(stepWidth, height, undefined, multiStepOpts));
+              }
             }
+            if (!content) throw new Error(`Invalid step: ${step}`);
+            stepContents.push(content);
           }
-          if (!content) throw new Error(`Invalid step: ${step}`);
-          stepContents.push(content);
-        }
-        let currentX = 0;
-        const groups: string[] = [];
-        stepContents.forEach((content, i) => {
-          groups.push(`<g transform="translate(${currentX}, 0)">${content}</g>`);
-          currentX += stepWidth + arrowSpacing;
-          if (i < stepContents.length - 1) {
-            const arrowY = height / 2;
-            const arrowSVG = generateArrowSVG(arrowStyle, 0, arrowY, arrowLength);
-            groups.push(`<g transform="translate(${currentX}, 0)">${arrowSVG}</g>`);
-            currentX += arrowLength + arrowSpacing;
-          }
-        });
-        svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+          let currentX = 0;
+          const groups: string[] = [];
+          stepContents.forEach((content, i) => {
+            groups.push(`<g transform="translate(${currentX}, 0)">${content}</g>`);
+            currentX += stepWidth + arrowSpacing;
+            if (i < stepContents.length - 1) {
+              const arrowY = height / 2;
+              const arrowSVG = generateArrowSVG(arrowStyle, 0, arrowY, arrowLength);
+              groups.push(`<g transform="translate(${currentX}, 0)">${arrowSVG}</g>`);
+              currentX += arrowLength + arrowSpacing;
+            }
+          });
+          svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
           ${groups.join("\n          ")}
         </svg>`;
-      } catch {
-        return null;
+        } catch {
+          return null;
+        }
       }
     } else if (smiles.includes(">") && !smiles.includes(">>")) {
       const extractSVGContent = (svgString: string): string => {
@@ -203,11 +221,13 @@ export function generateSVG(
             const arrowY = height / 2;
             const arrowSVG = generateArrowSVG(arrowStyle, 0, arrowY, arrowLength);
             if (hasAgents) {
-              const agentScale = 0.55;
+              const agentScale = 0.45;
               const agentH = Math.floor(height * agentScale);
-              const agentW = Math.floor((arrowLength + gap * 2) / nC);
-              let agentX = arrowX;
-              const agentY = Math.max(2, Math.floor(height / 2 - agentH - 4));
+              const totalAgentWidth = Math.max(arrowLength + gap * 2, molWidth * 0.8);
+              const agentW = Math.floor(totalAgentWidth / nC);
+              const agentStartX = arrowX - Math.floor((totalAgentWidth - arrowLength) / 2);
+              let agentX = Math.max(0, agentStartX);
+              const agentY = Math.max(2, Math.floor(height / 2 - agentH - 6));
               for (let i = 0; i < nC; i++) {
                 const mol = reaction.getCatalyst(i);
                 groups.push(

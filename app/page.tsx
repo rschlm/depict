@@ -1,12 +1,15 @@
 "use client";
 
 import { Suspense, useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { Search, Filter, X, Loader2, AlertCircle, CheckCircle2, Layers, ArrowRight, BarChart3, ChevronDown, Sliders, Copy, Check, Pencil, Clipboard, Download, Undo2, Redo2, ArrowUp, ListOrdered, Scale, TestTube2, Crosshair, Droplets, RotateCw, Atom, Droplet, Target, Keyboard, CopyMinus, Link2, FileText, FileCode, Table2, SlidersHorizontal, Image, Printer } from "lucide-react";
+import { Search, Filter, X, Loader2, AlertCircle, CheckCircle2, Layers, ArrowRight, BarChart3, ChevronDown, Sliders, Copy, Check, Pencil, Clipboard, Download, Undo2, Redo2, ArrowUp, ListOrdered, Scale, TestTube2, Crosshair, Droplets, RotateCw, Atom, Droplet, Target, Keyboard, CopyMinus, Link2, FileText, FileCode, Table2, SlidersHorizontal, Image, Printer, Fingerprint } from "lucide-react";
 import HexagonTwoTone from '@mui/icons-material/HexagonTwoTone';
 import { MoleculeGrid } from "@/components/MoleculeGrid";
+import { MoleculeTable } from "@/components/MoleculeTable";
 import { MoleculeGridSkeleton } from "@/components/MoleculeGridSkeleton";
+import { MoleculeTableSkeleton } from "@/components/MoleculeTableSkeleton";
 import { SelectionToolbar } from "@/components/SelectionToolbar";
 import { FileDropZone, FileImportButton } from "@/components/FileDropZone";
+import { CommandPalette, type ViewMode } from "@/components/CommandPalette";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SmilesEditor } from "@/components/SmilesEditor";
@@ -55,16 +58,20 @@ import { useChemStore } from "@/store/useChemStore";
 import { Molecule, DepictorOptions } from "openchemlib";
 import { MoleculeData } from "@/store/useChemStore";
 import { isReactionSmiles, parseReactionSmiles, deduplicateMolecules, type DeduplicationMode } from "@/utils/chemUtils";
-import { exportAllAsSDF, exportAllAsCSV, exportAllAsSMI, CSV_COLUMNS, generateFilenameFromSmiles } from "@/utils/downloadUtils";
+import { exportAllAsSDF, exportAllAsCSV, exportAllAsSMI, exportAllAsRXN, CSV_COLUMNS, generateFilenameFromSmiles } from "@/utils/downloadUtils";
 import { openPrintView } from "@/utils/printUtils";
+import { PropertyFiltersGrid } from "@/components/PropertyFiltersGrid";
 import { CsvExportDialog } from "@/components/CsvExportDialog";
 import { generateSVG } from "@/hooks/useCachedSVG";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { exportProject, importProject, triggerProjectFileOpen } from "@/lib/projectFile";
 import { motion } from "motion/react";
+import { LayoutGrid, TableProperties } from "lucide-react";
 
 function HomeContent() {
   const {
     setMolecules,
+    replaceMolecule,
     reorderMolecules,
     calculateProperties,
     filteredMolecules,
@@ -72,6 +79,12 @@ function HomeContent() {
     substructureSearch,
     clearSubstructureSearch,
     substructureQuery,
+    similarityAnchor,
+    similarityScores,
+    similarityThreshold,
+    setSimilarityAnchor,
+    filterBySimilarity,
+    clearSimilarity,
     loading,
     loadingProgress,
     error: storeError,
@@ -136,10 +149,21 @@ function HomeContent() {
     filename?: string;
   } | null>(null);
 
+  // Command palette
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  // View mode: grid or table
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("depict_view_mode") as ViewMode) || "grid";
+    }
+    return "grid";
+  });
+
   // Ketcher editor state
   const [showKetcherDialog, setShowKetcherDialog] = useState(false);
   const [ketcherMode, setKetcherMode] = useState<"draw" | "edit">("draw");
   const [moleculeToEdit, setMoleculeToEdit] = useState<string | undefined>(undefined);
+  const [editingMoleculeId, setEditingMoleculeId] = useState<string | null>(null);
 
   // Undo/redo for SMILES input
   const INPUT_HISTORY_MAX = 50;
@@ -244,6 +268,12 @@ function HomeContent() {
       const inInput = target && document.body.contains(target) &&
         (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
           (target instanceof HTMLElement && target.isContentEditable));
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key === "z") {
         e.preventDefault();
@@ -607,6 +637,16 @@ function HomeContent() {
       });
     }
 
+    if (similarityAnchor) {
+      const anchorMol = molecules.find((m) => m.id === similarityAnchor);
+      filters.push({
+        id: 'similarity',
+        label: `Similar to`,
+        value: `${anchorMol?.smiles?.substring(0, 20) ?? '...'} (≥${(similarityThreshold * 100).toFixed(0)}%)`,
+        onRemove: () => clearSimilarity()
+      });
+    }
+
     if (storeMwMin != null || storeMwMax != null) {
       filters.push({
         id: 'mw',
@@ -683,6 +723,7 @@ function HomeContent() {
   }, [
     substructureQuery,
     substructureError,
+    similarityAnchor, similarityThreshold, molecules,
     storeMwMin, storeMwMax, storeLogPMin, storeLogPMax, storeLogSMin, storeLogSMax,
     storeTpsaMin, storeTpsaMax, storeRotatableBondsMin, storeRotatableBondsMax,
     storeDonorCountMin, storeDonorCountMax, storeAcceptorCountMin, storeAcceptorCountMax,
@@ -690,7 +731,7 @@ function HomeContent() {
     mwMin, mwMax, logPMin, logPMax, logSMin, logSMax, tpsaMin, tpsaMax,
     rotatableBondsMin, rotatableBondsMax, donorCountMin, donorCountMax, acceptorCountMin, acceptorCountMax,
     stereoCenterCountMin, stereoCenterCountMax,
-    clearSubstructureSearch, setPropertyFilters,
+    clearSubstructureSearch, clearSimilarity, setPropertyFilters,
   ]);
 
   // Parse SMILES from input (newline or comma separated) and track invalid ones
@@ -822,15 +863,26 @@ function HomeContent() {
   };
 
   const handleSaveFromKetcher = (smiles: string, _molfile: string) => {
-    void _molfile; // Ketcher passes molfile but we only use SMILES
+    void _molfile;
     if (!smiles) return;
 
     if (ketcherMode === "draw") {
-      // Add to existing molecules
       const currentSmiles = smilesInput ? `${smilesInput}\n${smiles}` : smiles;
       setSmilesInput(currentSmiles);
+    } else if (editingMoleculeId) {
+      const mol = molecules.find((m) => m.id === editingMoleculeId);
+      if (mol) {
+        const lines = smilesInput.split("\n");
+        const idx = lines.findIndex((l) => l.trim() === mol.smiles.trim());
+        if (idx >= 0) {
+          lines[idx] = smiles;
+          skipNextPushRef.current = true;
+          handleSmilesInputChange(lines.join("\n"));
+        }
+        replaceMolecule(editingMoleculeId, smiles);
+      }
+      setEditingMoleculeId(null);
     } else {
-      // Replace edited molecule - for now just add it
       const currentSmiles = smilesInput ? `${smilesInput}\n${smiles}` : smiles;
       setSmilesInput(currentSmiles);
     }
@@ -848,6 +900,7 @@ function HomeContent() {
       case "donorCount": return <Droplet className={cn} />;
       case "acceptorCount": return <Target className={cn} />;
       case "stereoCenterCount": return <Atom className={cn} />;
+      case "similarity": return <Fingerprint className={cn} />;
       default: return <ListOrdered className={cn} />;
     }
   };
@@ -861,10 +914,152 @@ function HomeContent() {
     donorCount: "HBD",
     acceptorCount: "HBA",
     stereoCenterCount: "Stereo",
+    similarity: "Similarity",
   };
 
+  const handleFindSimilar = useCallback((molecule: MoleculeData) => {
+    setSimilarityAnchor(molecule.id);
+    setSort("similarity", "desc");
+  }, [setSimilarityAnchor, setSort]);
+
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem("depict_view_mode", mode);
+  }, []);
+
+  const fileInputRefForImport = useRef<HTMLInputElement>(null);
+
+  const handleCommandAction = useCallback((action: string) => {
+    switch (action) {
+      case "draw":
+        handleDrawMolecule();
+        break;
+      case "import":
+        fileInputRefForImport.current?.click();
+        break;
+      case "export":
+        break;
+      case "print":
+        openPrintView(displayedMolecules, { displayOptions, reactionArrowStyle, showProperties: !hideProperties });
+        break;
+      case "share": {
+        const state: UrlFilterState = {
+          sortBy, sortOrder, substructureQuery,
+          mwMin: storeMwMin ?? null, mwMax: storeMwMax ?? null,
+          logPMin: storeLogPMin ?? null, logPMax: storeLogPMax ?? null,
+          logSMin: storeLogSMin ?? null, logSMax: storeLogSMax ?? null,
+          tpsaMin: storeTpsaMin ?? null, tpsaMax: storeTpsaMax ?? null,
+          rotatableBondsMin: storeRotatableBondsMin ?? null, rotatableBondsMax: storeRotatableBondsMax ?? null,
+          donorCountMin: storeDonorCountMin ?? null, donorCountMax: storeDonorCountMax ?? null,
+          acceptorCountMin: storeAcceptorCountMin ?? null, acceptorCountMax: storeAcceptorCountMax ?? null,
+          stereoCenterCountMin: storeStereoCenterCountMin ?? null, stereoCenterCountMax: storeStereoCenterCountMax ?? null,
+        };
+        const params = buildSearchParams(state);
+        const url = buildShareUrl(
+          typeof window !== "undefined" ? window.location.origin + pathname : "",
+          smilesInput,
+          params
+        );
+        if (!url) {
+          toast.error(!smilesInput.trim() ? "Nothing to share" : "SMILES data too long for URL");
+        } else {
+          navigator.clipboard.writeText(url);
+          toast.success("Share link copied to clipboard");
+        }
+        break;
+      }
+      case "toggle-filters":
+        setShowPropertyFilters((v) => !v);
+        break;
+      case "toggle-charts":
+        setShowCharts((v) => !v);
+        break;
+      case "display-settings":
+        setShowDisplaySettings(true);
+        break;
+      case "shortcuts":
+        setShowShortcutsHelp(true);
+        break;
+      case "save-project":
+        exportProject({
+          smilesInput,
+          displayOptions,
+          sortBy,
+          sortOrder,
+          propertyFilters: {
+            mwMin: storeMwMin, mwMax: storeMwMax,
+            logPMin: storeLogPMin, logPMax: storeLogPMax,
+            logSMin: storeLogSMin, logSMax: storeLogSMax,
+            tpsaMin: storeTpsaMin, tpsaMax: storeTpsaMax,
+            rotatableBondsMin: storeRotatableBondsMin, rotatableBondsMax: storeRotatableBondsMax,
+            donorCountMin: storeDonorCountMin, donorCountMax: storeDonorCountMax,
+            acceptorCountMin: storeAcceptorCountMin, acceptorCountMax: storeAcceptorCountMax,
+            stereoCenterCountMin: storeStereoCenterCountMin, stereoCenterCountMax: storeStereoCenterCountMax,
+          },
+          molecules: molecules.map((m) => ({
+            smiles: m.smiles,
+            name: m.name,
+            tags: m.tags,
+          })),
+        }).then(() => toast.success("Project saved")).catch(() => toast.error("Failed to save project"));
+        break;
+      case "open-project":
+        triggerProjectFileOpen().then((project) => {
+          if (!project) return;
+          handleSmilesInputChange(project.smilesInput);
+          if (project.displayOptions) setDisplayOptions(project.displayOptions);
+          if (project.sortBy) setSort(project.sortBy as typeof sortBy, project.sortOrder ?? "asc");
+          if (project.propertyFilters) setPropertyFilters(project.propertyFilters);
+          toast.success("Project loaded");
+        }).catch(() => toast.error("Failed to load project"));
+        break;
+    }
+  }, [displayedMolecules, displayOptions, reactionArrowStyle, hideProperties, sortBy, sortOrder, substructureQuery, smilesInput, pathname,
+    storeMwMin, storeMwMax, storeLogPMin, storeLogPMax, storeLogSMin, storeLogSMax, storeTpsaMin, storeTpsaMax,
+    storeRotatableBondsMin, storeRotatableBondsMax, storeDonorCountMin, storeDonorCountMax, storeAcceptorCountMin, storeAcceptorCountMax,
+    storeStereoCenterCountMin, storeStereoCenterCountMax, handleSmilesInputChange, setSort, setPropertyFilters, molecules,
+  ]);
+
+  const handleCommandSort = useCallback((key: string, order?: "asc" | "desc") => {
+    type SortByType = typeof sortBy;
+    const validKeys = ["input", "mw", "logP", "tpsa", "logS", "rotatableBonds", "donorCount", "acceptorCount", "stereoCenterCount", "similarity", "stepCount", "atomEconomy", "numComponents"];
+    if (validKeys.includes(key)) {
+      setSort(key as SortByType, order ?? sortOrder);
+    }
+  }, [setSort, sortOrder]);
+
+  const handleFilterPreset = useCallback((preset: string) => {
+    switch (preset) {
+      case "lipinski":
+        setPropertyFilters({ mwMin: null, mwMax: 500, logPMin: null, logPMax: 5, donorCountMin: null, donorCountMax: 5, acceptorCountMin: null, acceptorCountMax: 10 });
+        setShowPropertyFilters(true);
+        break;
+      case "leadlike":
+        setPropertyFilters({ mwMin: 200, mwMax: 350, logPMin: -1, logPMax: 3 });
+        setShowPropertyFilters(true);
+        break;
+      case "fragment":
+        setPropertyFilters({ mwMin: null, mwMax: 300, logPMin: null, logPMax: 3 });
+        setShowPropertyFilters(true);
+        break;
+      case "atom-economical":
+        setTypeFilter("reactions");
+        setSort("atomEconomy" as typeof sortBy, "desc");
+        toast.success("Showing reactions sorted by atom economy");
+        break;
+      case "balanced":
+        setTypeFilter("reactions");
+        setSort("input" as typeof sortBy, "asc");
+        toast.success("Showing balanced reactions");
+        break;
+      case "clear":
+        clearPropertyFilters();
+        break;
+    }
+  }, [setPropertyFilters, clearPropertyFilters, setSort, setTypeFilter]);
+
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground">
+    <div className={`flex flex-col bg-background text-foreground ${viewMode === "table" ? "h-screen overflow-hidden" : "min-h-screen"}`}>
       {/* Header */}
       <header className="flex-shrink-0 border-b border-border/40 bg-background/95 backdrop-blur-xl sticky top-0 z-50">
         <div className="container mx-auto px-4">
@@ -1078,13 +1273,17 @@ function HomeContent() {
                       </DropdownMenuTrigger>
                     )}
                     <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem onClick={() => exportAllAsSDF(listToExport)}>
+                      <DropdownMenuItem onClick={() => { const s = exportAllAsSDF(listToExport); if (s > 0) toast.info(`${s} reaction${s > 1 ? "s" : ""} omitted from SDF`); }}>
                         <FileText className="w-3.5 h-3.5 mr-2 shrink-0" />
                         {filtersApplied ? "Export filtered as SDF" : "Export as SDF"}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => exportAllAsSMI(listToExport)}>
                         <FileCode className="w-3.5 h-3.5 mr-2 shrink-0" />
                         {filtersApplied ? "Export filtered as SMI" : "Export as SMI"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { const r = exportAllAsRXN(listToExport); if (r.exported === 0) toast.info("No reactions to export"); }}>
+                        <FileText className="w-3.5 h-3.5 mr-2 shrink-0" />
+                        {filtersApplied ? "Export filtered reactions as RDF" : "Export reactions as RDF"}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() => exportAllAsCSV(listToExport)}
@@ -1147,7 +1346,7 @@ function HomeContent() {
                         <>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => exportAllAsSDF(molecules)}
+                            onClick={() => { const s = exportAllAsSDF(molecules); if (s > 0) toast.info(`${s} reaction${s > 1 ? "s" : ""} omitted from SDF`); }}
                             className="text-muted-foreground"
                           >
                             <FileText className="w-3.5 h-3.5 mr-2 shrink-0" />
@@ -1315,6 +1514,35 @@ function HomeContent() {
 
               <div className="w-px h-4 bg-border/50" />
 
+              {molecules.length > 0 && (
+                <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleViewModeChange("grid")}
+                        className={`p-1.5 transition-colors ${viewMode === "grid" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
+                        aria-label="Grid view"
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><span className="text-xs">Grid view</span></TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleViewModeChange("table")}
+                        className={`p-1.5 transition-colors ${viewMode === "table" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
+                        aria-label="Table view"
+                      >
+                        <TableProperties className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom"><span className="text-xs">Table view</span></TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
+
               <ThemeSwitcher className="hidden sm:flex" />
 
               <Dialog open={showShortcutsHelp} onOpenChange={setShowShortcutsHelp}>
@@ -1381,6 +1609,10 @@ function HomeContent() {
                     <div className="flex justify-between items-center gap-4 py-1">
                       <span className="text-muted-foreground">Close panel / dialog</span>
                       <Kbd>Esc</Kbd>
+                    </div>
+                    <div className="flex justify-between items-center gap-4 py-1">
+                      <span className="text-muted-foreground">Command palette</span>
+                      <KbdGroup><Kbd>Ctrl</Kbd><span className="text-muted-foreground">+</span><Kbd>K</Kbd></KbdGroup>
                     </div>
                     <div className="flex justify-between items-center gap-4 py-1">
                       <span className="text-muted-foreground">Show this dialog</span>
@@ -1694,6 +1926,9 @@ function HomeContent() {
                     maxHeight="300px"
                     invalidSmiles={invalidSmiles}
                     className={invalidSmiles.length > 0 ? "border-destructive/50" : ""}
+                    onImagePaste={() => {
+                      toast.info("Image-to-SMILES conversion is not yet available. Please paste SMILES text instead, or use the Ketcher editor to draw structures.");
+                    }}
                   />
                 </div>
 
@@ -1751,6 +1986,12 @@ function HomeContent() {
                               <Atom className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                               Stereo
                             </SelectItem>
+                            {similarityAnchor && (
+                              <SelectItem value="similarity" className="font-sans text-xs flex items-center gap-2">
+                                <Fingerprint className="w-3.5 h-3.5 shrink-0 text-violet-500" />
+                                Similarity
+                              </SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                         <Tooltip>
@@ -1825,103 +2066,17 @@ function HomeContent() {
 
               {/* Property Filters Row */}
               {showPropertyFilters && (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 p-4 bg-background/60 backdrop-blur-sm border border-border/40 rounded-md shadow-sm">
-                  {/* Header */}
-                  <div className="col-span-full flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Sliders className="w-3.5 h-3.5" />
-                      <span>Property Filters</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearPropertyFilters}
-                      className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Clear All
-                    </Button>
-                  </div>
-
-                  {/* MW Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">MW</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={mwMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ mwMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={mwMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ mwMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* LogP Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">LogP</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={logPMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ logPMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" step="0.1" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={logPMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ logPMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" step="0.1" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* LogS Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">LogS</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={logSMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ logSMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" step="0.1" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={logSMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ logSMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" step="0.1" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* TPSA Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">TPSA</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={tpsaMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ tpsaMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={tpsaMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ tpsaMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* Rotatable Bonds Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">Rot. Bonds</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={rotatableBondsMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ rotatableBondsMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={rotatableBondsMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ rotatableBondsMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* H-Bond Donors Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">HB Donors</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={donorCountMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ donorCountMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={donorCountMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ donorCountMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* H-Bond Acceptors Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">HB Accept.</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={acceptorCountMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ acceptorCountMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={acceptorCountMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ acceptorCountMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-
-                  {/* Stereo Centers Range */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-medium text-foreground/80 truncate">Stereo Ctr.</label>
-                    <div className="flex items-center gap-1">
-                      <input type="number" value={stereoCenterCountMin} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ stereoCenterCountMin: n === null || isNaN(n) ? null : n }); }} placeholder="Min" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                      <span className="text-[10px] text-muted-foreground/60">–</span>
-                      <input type="number" value={stereoCenterCountMax} onChange={(e) => { const v = e.target.value; const n = v === "" ? null : Number(v); setPropertyFilters({ stereoCenterCountMax: n === null || isNaN(n) ? null : n }); }} placeholder="Max" className="w-16 h-7 px-1.5 text-[11px] font-mono bg-background/80 border border-border/40 rounded text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/20" />
-                    </div>
-                  </div>
-                </div>
+                <PropertyFiltersGrid
+                  values={{
+                    mwMin, mwMax, logPMin, logPMax, logSMin, logSMax,
+                    tpsaMin, tpsaMax, rotatableBondsMin, rotatableBondsMax,
+                    donorCountMin, donorCountMax, acceptorCountMin, acceptorCountMax,
+                    stereoCenterCountMin, stereoCenterCountMax,
+                  }}
+                  onFilterChange={setPropertyFilters}
+                  onClearAll={clearPropertyFilters}
+                  molecules={molecules}
+                />
               )}
 
               {/* Charts Row - compact, single line in header */}
@@ -1970,25 +2125,27 @@ function HomeContent() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col container mx-auto px-4 relative overflow-hidden">
+      <main className={`flex-1 flex flex-col container mx-auto px-4 relative ${viewMode === "table" ? "min-h-0 overflow-hidden" : ""}`}>
         {loading && molecules.length > 0 && (
-          <>
-            <div className="py-4 space-y-3">
-              <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 border border-border/50 text-xs text-muted-foreground">
-                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                <span className="font-sans">
-                  {loadingProgress
-                    ? `Calculating… ${loadingProgress.current.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
-                    : "Calculating properties…"}
-                </span>
-              </div>
+          <div className="py-4 space-y-3">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 border border-border/50 text-xs text-muted-foreground">
+              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              <span className="font-sans">
+                {loadingProgress
+                  ? `Calculating… ${loadingProgress.current.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
+                  : "Calculating properties…"}
+              </span>
+            </div>
+            {viewMode === "table" ? (
+              <MoleculeTableSkeleton rows={Math.min(molecules.length, 14)} />
+            ) : (
               <MoleculeGridSkeleton
                 count={molecules.length}
                 hideActionButtons={hideActionButtons}
                 hideProperties={hideProperties}
               />
-            </div>
-          </>
+            )}
+          </div>
         )}
         {loading && molecules.length === 0 && (
           <div className="flex-1 flex items-center justify-center">
@@ -2088,24 +2245,39 @@ function HomeContent() {
         )}
 
         {!loading && displayedMolecules.length > 0 && (
-          <div className="py-4 space-y-3">
-            <MoleculeGrid
-              className="h-full"
-              molecules={displayedMolecules}
-              displayOptions={displayOptions}
-              hideActionButtons={hideActionButtons}
-              hideProperties={hideProperties}
-              selectedIds={selectedIds}
-              onSelectionChange={setSelectedIds}
-              lastClickedIndex={lastClickedIndex}
-              onLastClickedIndexChange={setLastClickedIndex}
-              onMoleculeClick={(molecule) => {
-                setSelectedMolecule(molecule);
-                setShowMoleculeDetail(true);
-              }}
-              onMoleculeHover={setHoveredMolecule}
-              onReorder={handleReorder}
-            />
+          <div className={viewMode === "table" ? "flex-1 min-h-0 flex flex-col pt-4 pb-2 gap-3" : "py-4 space-y-3"}>
+            {viewMode === "table" ? (
+              <MoleculeTable
+                molecules={displayedMolecules}
+                displayOptions={displayOptions}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+                onMoleculeClick={(molecule) => {
+                  setSelectedMolecule(molecule);
+                  setShowMoleculeDetail(true);
+                }}
+                onFindSimilar={handleFindSimilar}
+              />
+            ) : (
+              <MoleculeGrid
+                className="h-full"
+                molecules={displayedMolecules}
+                displayOptions={displayOptions}
+                hideActionButtons={hideActionButtons}
+                hideProperties={hideProperties}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+                lastClickedIndex={lastClickedIndex}
+                onLastClickedIndexChange={setLastClickedIndex}
+                onMoleculeClick={(molecule) => {
+                  setSelectedMolecule(molecule);
+                  setShowMoleculeDetail(true);
+                }}
+                onMoleculeHover={setHoveredMolecule}
+                onReorder={handleReorder}
+                onFindSimilar={handleFindSimilar}
+              />
+            )}
           </div>
         )}
 
@@ -2125,10 +2297,12 @@ function HomeContent() {
           onClose={() => setShowMoleculeDetail(false)}
           onEdit={(molecule) => {
             setMoleculeToEdit(molecule.smiles);
+            setEditingMoleculeId(molecule.id);
             setKetcherMode("edit");
             setShowKetcherDialog(true);
             setShowMoleculeDetail(false);
           }}
+          onFindSimilar={handleFindSimilar}
           displayOptions={displayOptions}
         />
       </main>
@@ -2147,6 +2321,60 @@ function HomeContent() {
 
       {/* File Drop Zone */}
       <FileDropZone />
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        molecules={molecules}
+        onMoleculeSelect={(mol) => {
+          setSelectedMolecule(mol);
+          setShowMoleculeDetail(true);
+        }}
+        onAction={handleCommandAction}
+        onSort={handleCommandSort}
+        onFilterPreset={handleFilterPreset}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+      />
+
+      {/* Hidden file input for command palette import */}
+      <input
+        ref={fileInputRefForImport}
+        type="file"
+        accept=".csv,.sdf,.sd,.rxn,.rdf,.depict"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const ext = file.name.split(".").pop()?.toLowerCase();
+          if (ext === "depict") {
+            try {
+              const text = await file.text();
+              const project = JSON.parse(text);
+              if (project.smilesInput) handleSmilesInputChange(project.smilesInput);
+              if (project.displayOptions) setDisplayOptions(project.displayOptions);
+              if (project.sortBy) setSort(project.sortBy as typeof sortBy, project.sortOrder ?? "asc");
+              if (project.propertyFilters) setPropertyFilters(project.propertyFilters);
+              toast.success("Project loaded");
+            } catch {
+              toast.error("Failed to load project file");
+            }
+          } else {
+            const { parseChemFile } = await import("@/utils/fileParser");
+            try {
+              const mols = await parseChemFile(file);
+              if (mols.length > 0) {
+                setMolecules(mols.map((m) => m.smiles));
+                toast.success(`Imported ${mols.length} molecules`);
+              }
+            } catch {
+              toast.error("Failed to import file");
+            }
+          }
+          e.target.value = "";
+        }}
+        className="hidden"
+      />
     </div>
   );
 }

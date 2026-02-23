@@ -19,6 +19,8 @@ export interface PropertyCalculationResponse {
         donorCount: number;
         acceptorCount: number;
         stereoCenterCount: number;
+        molecularFormula: string;
+        ro5Violations: number;
     } | null;
     error?: string;
 }
@@ -53,19 +55,31 @@ self.onmessage = (e: MessageEvent<PropertyCalculationRequest>) => {
 
         const props = new MoleculeProperties(mol);
         const mw = mol.getMolweight();
+        const formula = mol.getMolecularFormula().formula;
+        const donorCount = props.donorCount || 0;
+        const acceptorCount = props.acceptorCount || 0;
+        const logP = props.logP;
+
+        let ro5 = 0;
+        if (mw > 500) ro5++;
+        if (logP > 5) ro5++;
+        if (donorCount > 5) ro5++;
+        if (acceptorCount > 10) ro5++;
 
         const properties = {
             mw,
-            logP: props.logP,
-            logPString: Array.isArray(props.logPString) ? props.logPString.join('') : String(props.logP),
+            logP,
+            logPString: Array.isArray(props.logPString) ? props.logPString.join('') : String(logP),
             logS: props.logS,
             logSString: Array.isArray(props.logSString) ? props.logSString.join('') : String(props.logS),
             tpsa: props.polarSurfaceArea,
             tpsaString: Array.isArray(props.polarSurfaceAreaString) ? props.polarSurfaceAreaString.join('') : String(props.polarSurfaceArea),
             rotatableBonds: props.rotatableBondCount,
-            donorCount: props.donorCount || 0,
-            acceptorCount: props.acceptorCount || 0,
+            donorCount,
+            acceptorCount,
             stereoCenterCount: props.stereoCenterCount || 0,
+            molecularFormula: formula,
+            ro5Violations: ro5,
         };
 
         self.postMessage({ id, properties } as PropertyCalculationResponse);
