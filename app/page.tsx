@@ -152,12 +152,11 @@ function HomeContent() {
   // Command palette
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // View mode: grid or table
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("depict_view_mode") as ViewMode) || "grid";
-    }
-    return "grid";
-  });
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  useEffect(() => {
+    const saved = localStorage.getItem("depict_view_mode") as ViewMode;
+    if (saved) setViewMode(saved);
+  }, []);
 
   // Ketcher editor state
   const [showKetcherDialog, setShowKetcherDialog] = useState(false);

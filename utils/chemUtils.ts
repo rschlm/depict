@@ -374,7 +374,7 @@ export function computeReactionMetadata(smiles: string): ReactionMetadata | null
 
   if (smiles.includes(">>")) {
     const steps = smiles.split(">>").filter((s) => s.trim().length > 0);
-    numSteps = steps.length;
+    numSteps = steps.length - 1;
     steps.forEach((step, index) => {
       const isFirst = index === 0;
       const isLast = index === steps.length - 1;
