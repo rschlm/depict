@@ -1,5 +1,22 @@
 import { create } from "zustand";
 import { Molecule, SSSearcherWithIndex } from "openchemlib";
+
+const PROPERTY_CALC_WORKER_POOL_SIZE = 4;
+let propertyCalculatorWorkerPool: Worker[] | null = null;
+
+function getPropertyCalculatorWorkerPool(): Worker[] {
+  if (!propertyCalculatorWorkerPool) {
+    propertyCalculatorWorkerPool = [];
+    for (let i = 0; i < PROPERTY_CALC_WORKER_POOL_SIZE; i++) {
+      propertyCalculatorWorkerPool.push(
+        new Worker(new URL("../workers/propertyCalculator.worker.ts", import.meta.url), {
+          type: "module",
+        })
+      );
+    }
+  }
+  return propertyCalculatorWorkerPool;
+}
 import { MoleculeProperty, isReactionSmiles, parseReactionSmiles, computeReactionMetadata } from "@/utils/chemUtils";
 import type { ReactionMetadata } from "@/utils/chemUtils";
 import { CARDS_PER_ROW } from "@/constants/ui";
@@ -11,10 +28,14 @@ export type ReactionArrowStyle =
   | "no-go"             // ⊗ Crossed out arrow
   | "resonance";        // ↔ Resonance double arrow
 
+export type PropertiesStatus = "pending" | "done" | "error";
+
 export interface MoleculeData {
   id: string;
   smiles: string;
   properties: MoleculeProperty | null;
+  /** Tracks whether property calculation has been attempted/completed for this molecule. */
+  propertiesStatus?: PropertiesStatus;
   mol: Molecule | null;
   isReaction: boolean;
   reactionMeta?: ReactionMetadata;
@@ -258,6 +279,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
             id: `mol-${index}`,
             smiles: smilesStr,
             properties: null,
+            propertiesStatus: "done",
             mol: null,
             isReaction: true,
             reactionMeta,
@@ -270,6 +292,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
             id: `mol-${index}`,
             smiles: smilesStr,
             properties: null,
+            propertiesStatus: "pending",
             mol,
             isReaction: false,
             name: meta?.name,
@@ -281,6 +304,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
           id: `mol-${index}`,
           smiles: smilesStr,
           properties: null,
+          propertiesStatus: "done",
           mol: null,
           isReaction: false,
           name: meta?.name,
@@ -300,18 +324,18 @@ export const useChemStore = create<ChemStore>((set, get) => ({
 
   replaceMolecule: (id: string, newSmiles: string) => {
     const { molecules } = get();
-    const updated = molecules.map((m) => {
+    const updated: MoleculeData[] = molecules.map((m) => {
       if (m.id !== id) return m;
       try {
         const isRxn = isReactionSmiles(newSmiles);
         if (isRxn) {
           const reactionMeta = computeReactionMetadata(newSmiles) ?? undefined;
-          return { ...m, smiles: newSmiles, properties: null, mol: null, isReaction: true, reactionMeta };
+          return { ...m, smiles: newSmiles, properties: null, propertiesStatus: "done", mol: null, isReaction: true, reactionMeta };
         }
         const mol = Molecule.fromSmiles(newSmiles);
-        return { ...m, smiles: newSmiles, properties: null, mol, isReaction: false, reactionMeta: undefined };
+        return { ...m, smiles: newSmiles, properties: null, propertiesStatus: "pending", mol, isReaction: false, reactionMeta: undefined };
       } catch {
-        return { ...m, smiles: newSmiles, properties: null, mol: null, isReaction: false, reactionMeta: undefined };
+        return { ...m, smiles: newSmiles, properties: null, propertiesStatus: "done", mol: null, isReaction: false, reactionMeta: undefined };
       }
     });
     const currentFilters = getCurrentFilters(get());
@@ -345,7 +369,11 @@ export const useChemStore = create<ChemStore>((set, get) => ({
 
       // Skip if all molecules already have properties
       // Also filter out reactions (mol === null) as they can't have molecular properties
-      const moleculesToCalculate = molecules.filter(mol => mol.properties === null && mol.mol !== null);
+      const moleculesToCalculate = molecules.filter(mol =>
+        mol.mol !== null &&
+        mol.propertiesStatus !== "done" &&
+        mol.propertiesStatus !== "error"
+      );
       if (moleculesToCalculate.length === 0) {
         set({ loading: false, loadingProgress: null });
         return;
@@ -354,20 +382,20 @@ export const useChemStore = create<ChemStore>((set, get) => ({
       const total = moleculesToCalculate.length;
       set({ loadingProgress: { current: 0, total } });
 
-      // Create worker pool (4 workers for parallel processing)
-      const WORKER_COUNT = 4;
-      const workers: Worker[] = [];
+      const workers = getPropertyCalculatorWorkerPool();
+      const WORKER_COUNT = workers.length;
 
-      for (let i = 0; i < WORKER_COUNT; i++) {
-        workers.push(
-          new Worker(new URL('../workers/propertyCalculator.worker.ts', import.meta.url), {
-            type: 'module'
-          })
-        );
-      }
-
-      const results = new Map<string, MoleculeProperty | null>();
+      const results = new Map<string, { properties: MoleculeProperty | null; error?: string }>();
       let completed = 0;
+      let lastProgressEmit = 0;
+      const PROGRESS_THROTTLE_MS = 80;
+      const emitProgress = () => {
+        const now = Date.now();
+        if (completed === total || now - lastProgressEmit >= PROGRESS_THROTTLE_MS) {
+          lastProgressEmit = now;
+          set({ loadingProgress: { current: completed, total } });
+        }
+      };
 
       // Create promises for all molecules
       const promises = moleculesToCalculate.map((mol, index) => {
@@ -385,13 +413,13 @@ export const useChemStore = create<ChemStore>((set, get) => ({
               clearTimeout(timeout);
 
               if (error) {
-                results.set(id, null);
+                results.set(id, { properties: null, error: String(error) });
               } else {
-                results.set(id, properties);
+                results.set(id, { properties, error: undefined });
               }
 
               completed++;
-              set({ loadingProgress: { current: completed, total: moleculesToCalculate.length } });
+              emitProgress();
 
               worker.removeEventListener('message', handler);
               resolve();
@@ -405,14 +433,15 @@ export const useChemStore = create<ChemStore>((set, get) => ({
 
       await Promise.all(promises);
 
-      // Terminate workers
-      workers.forEach(w => w.terminate());
-
       // Update molecules with calculated properties
-      const updatedMolecules = molecules.map(mol => {
-        const calculatedProps = results.get(mol.id);
-        if (calculatedProps !== undefined) {
-          return { ...mol, properties: calculatedProps };
+      const updatedMolecules: MoleculeData[] = molecules.map(mol => {
+        const r = results.get(mol.id);
+        if (r !== undefined) {
+          return {
+            ...mol,
+            properties: r.properties,
+            propertiesStatus: r.error ? "error" : "done",
+          };
         }
         return mol;
       });
@@ -430,6 +459,22 @@ export const useChemStore = create<ChemStore>((set, get) => ({
         loadingProgress: null,
       });
     } catch (error) {
+      // Mark any in-flight molecules as error so the UI doesn't re-trigger endlessly.
+      const { molecules, substructureFilteredMolecules } = get();
+      const updatedMolecules: MoleculeData[] = molecules.map((m) => {
+        if (m.mol && m.propertiesStatus !== "done" && m.propertiesStatus !== "error") {
+          return { ...m, propertiesStatus: "error" as const };
+        }
+        return m;
+      });
+      const substructureIds = new Set(substructureFilteredMolecules.map((m) => m.id));
+      const newSubstructureFiltered = updatedMolecules.filter((m) => substructureIds.has(m.id));
+      const currentFilters = getCurrentFilters(get());
+      set({
+        molecules: updatedMolecules,
+        substructureFilteredMolecules: newSubstructureFiltered,
+        filteredMolecules: applyPropertyFilters(newSubstructureFiltered, currentFilters),
+      });
       set({
         error: error instanceof Error ? error.message : "Unknown error",
         loading: false,

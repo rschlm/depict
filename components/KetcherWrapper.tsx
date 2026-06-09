@@ -5,8 +5,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { StandaloneStructServiceProvider } from "ketcher-standalone";
 import { Editor } from "ketcher-react";
 import { Button } from "./ui/button";
-import { Save, X } from "lucide-react";
+import { Save, Sparkles, Wand2, X } from "lucide-react";
 import { KetcherErrorBoundary } from "./KetcherErrorBoundary";
+import { toast } from "sonner";
 import "ketcher-react/dist/index.css";
 
 const originalError = console.error;
@@ -57,6 +58,10 @@ interface KetcherEditorRef {
     getMolfile: () => Promise<string>;
     setMolecule: (mol: string) => Promise<void>;
     getRxn?: () => Promise<string>;
+  layout?: () => Promise<void>;
+  cleanUp?: () => Promise<void>;
+  clean?: () => Promise<void>;
+  generate2dCoordinates?: () => Promise<void>;
 }
 
 interface KetcherWrapperProps {
@@ -65,10 +70,22 @@ interface KetcherWrapperProps {
     onClose?: () => void;
 }
 
+const TEMPLATE_LIBRARY: Array<{ id: string; label: string; smiles: string }> = [
+    { id: "none", label: "Insert template...", smiles: "" },
+    { id: "benzene", label: "Benzene", smiles: "c1ccccc1" },
+    { id: "pyridine", label: "Pyridine", smiles: "n1ccccc1" },
+    { id: "indole", label: "Indole", smiles: "c1ccc2[nH]ccc2c1" },
+    { id: "imidazole", label: "Imidazole", smiles: "c1ncc[nH]1" },
+    { id: "piperidine", label: "Piperidine", smiles: "N1CCCCC1" },
+    { id: "morpholine", label: "Morpholine", smiles: "O1CCNCC1" },
+];
+
 export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrapperProps) {
     const [structServiceProvider] = useState(() => new StandaloneStructServiceProvider());
     const editorRef = useRef<KetcherEditorRef | null>(null);
     const [isReady, setIsReady] = useState(false);
+    const [selectedTemplate, setSelectedTemplate] = useState("none");
+
 
     const setEditorRef = useCallback((editor: KetcherEditorRef | null) => {
         if (editor) {
@@ -150,11 +167,70 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
         }
     };
 
+    const handleClean2D = useCallback(async () => {
+        if (!editorRef.current || !isReady) return;
+        const editor = editorRef.current;
+        try {
+            if (typeof editor.layout === "function") await editor.layout();
+            else if (typeof editor.cleanUp === "function") await editor.cleanUp();
+            else if (typeof editor.clean === "function") await editor.clean();
+            else if (typeof editor.generate2dCoordinates === "function") await editor.generate2dCoordinates();
+            else throw new Error("No cleanup API exposed");
+            toast.success("Applied 2D cleanup");
+        } catch {
+            toast.info("2D cleanup is unavailable in this editor build.");
+        }
+    }, [isReady]);
+
+    const handleTemplateInsert = useCallback(async (templateId: string) => {
+        setSelectedTemplate(templateId);
+        if (!editorRef.current || !isReady || templateId === "none") return;
+        const template = TEMPLATE_LIBRARY.find((t) => t.id === templateId);
+        if (!template) return;
+        try {
+            const { Molecule } = await import("openchemlib");
+            const mol = Molecule.fromSmiles(template.smiles);
+            await editorRef.current.setMolecule(mol.toMolfile());
+            toast.success(`${template.label} template inserted`);
+        } catch {
+            toast.error("Failed to insert template");
+        } finally {
+            setSelectedTemplate("none");
+        }
+    }, [isReady]);
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 bg-background/95">
                 <h2 className="text-sm font-semibold">Structure Editor</h2>
                 <div className="flex items-center gap-2">
+                    <div className="hidden md:flex items-center gap-1">
+                        <Wand2 className="w-3.5 h-3.5 text-muted-foreground" />
+                        <Button
+                            onClick={handleClean2D}
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2.5 text-xs"
+                            disabled={!isReady}
+                        >
+                            Clean 2D
+                        </Button>
+                    </div>
+                    <div className="hidden lg:flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
+                        <select
+                            value={selectedTemplate}
+                            onChange={(e) => { void handleTemplateInsert(e.target.value); }}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                            disabled={!isReady}
+                        >
+                            {TEMPLATE_LIBRARY.map((template) => (
+                                <option key={template.id} value={template.id}>
+                                    {template.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <Button
                         onClick={handleSave}
                         size="sm"

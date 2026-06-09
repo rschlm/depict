@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { Molecule, Reaction } from "openchemlib";
+import { Molecule, Reaction, SDFileParser } from "openchemlib";
 
 export interface ParsedMoleculeData {
     smiles: string;
@@ -18,17 +18,15 @@ export async function parseCSV(file: File): Promise<ParsedMoleculeData[]> {
             complete: (results) => {
                 try {
                     const molecules: ParsedMoleculeData[] = [];
+                    const fields = ((results.meta as { fields?: string[] } | undefined)?.fields ?? []);
+                    const smilesKey = fields.find((key) => {
+                        const lower = key.toLowerCase();
+                        return lower.includes("smiles") || lower.includes("smile");
+                    });
 
                     for (const row of results.data as Record<string, string>[]) {
-                        // Find SMILES column (common variations)
-                        const smilesKey = Object.keys(row).find((key) =>
-                            key.toLowerCase().includes("smiles") ||
-                            key.toLowerCase().includes("smile") ||
-                            key === "SMILES" ||
-                            key === "smiles"
-                        );
-
-                        const smiles = smilesKey ? row[smilesKey]?.trim() : Object.values(row)[0] as string;
+                        const firstValue = Object.values(row)[0];
+                        const smiles = smilesKey ? row[smilesKey]?.trim() : (typeof firstValue === "string" ? firstValue.trim() : "");
 
                         if (smiles && typeof smiles === "string" && smiles.length > 0) {
                             // Extract other properties
@@ -59,57 +57,57 @@ export async function parseCSV(file: File): Promise<ParsedMoleculeData[]> {
 }
 
 /**
- * Parse SDF (Structure Data File) format
- * SDF files contain MOL blocks separated by $$$$
+ * Parse SDF (Structure Data File) format.
+ * Uses OpenChemLib's SDFileParser for record boundaries and data fields (not raw $$$$ splitting).
  */
 export async function parseSDF(file: File): Promise<ParsedMoleculeData[]> {
     const text = await file.text();
     const molecules: ParsedMoleculeData[] = [];
 
-    // Split by $$$$ delimiter
-    const molBlocks = text.split(/\$\$\$\$/);
+    // Prefer OpenChemLib's SDFileParser for correct record + field handling.
+    const parser = new SDFileParser(text, []);
 
-    for (const block of molBlocks) {
-        const trimmed = block.trim();
-        if (!trimmed) continue;
-
+    while (parser.next()) {
         try {
-            // Extract MOL block (everything before the first data tag or end)
-            const lines = trimmed.split("\n");
-            let molfileEnd = lines.length;
+            const molfile = parser.getNextMolFile?.() as string | undefined;
+            if (!molfile || molfile.trim().length === 0) continue;
 
-            // Find where the molfile ends (M  END line)
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].trim().startsWith("M  END")) {
-                    molfileEnd = i + 1;
-                    break;
-                }
-            }
-
-            const molfile = lines.slice(0, molfileEnd).join("\n");
-
-            // Convert MOL to SMILES using OpenChemLib
             const mol = Molecule.fromMolfile(molfile);
-            const smiles = mol.toSmiles();
+            if (!mol || mol.getAllAtoms() === 0) continue;
+            const smiles = mol.toIsomericSmiles();
+            if (!smiles || smiles.trim().length === 0) continue;
 
-            // Extract data tags (properties)
             const properties: Record<string, unknown> = {};
-            let currentTag = "";
-
-            for (let i = molfileEnd; i < lines.length; i++) {
-                const line = lines[i].trim();
-
-                // Data tags start with >
-                if (line.startsWith(">")) {
-                    // Extract tag name between < and >
-                    const match = line.match(/<(.+?)>/);
-                    if (match) {
-                        currentTag = match[1];
+            const raw = (parser.getNextFieldData?.() as string | undefined) ?? "";
+            if (raw) {
+                const lines = raw.split(/\r?\n/);
+                let currentTag: string | null = null;
+                let buf: string[] = [];
+                const flush = () => {
+                    if (!currentTag) return;
+                    const v = buf.join("\n").trim();
+                    if (v.length > 0) properties[currentTag] = v;
+                    currentTag = null;
+                    buf = [];
+                };
+                for (const line of lines) {
+                    const l = line.trimEnd();
+                    if (l.startsWith("$$$$")) break;
+                    if (l.trim().startsWith(">")) {
+                        flush();
+                        const match = l.match(/<(.+?)>/);
+                        currentTag = match?.[1] ?? null;
+                        continue;
                     }
-                } else if (currentTag && line) {
-                    properties[currentTag] = line;
-                    currentTag = "";
+                    if (!currentTag) continue;
+                    // SDF field values can be multi-line; blank line terminates field.
+                    if (l.trim().length === 0) {
+                        flush();
+                        continue;
+                    }
+                    buf.push(l);
                 }
+                flush();
             }
 
             molecules.push({
@@ -117,7 +115,7 @@ export async function parseSDF(file: File): Promise<ParsedMoleculeData[]> {
                 properties: Object.keys(properties).length > 0 ? properties : undefined,
             });
         } catch {
-            // Continue with next molecule
+            // Continue with next molecule record
         }
     }
 

@@ -524,3 +524,364 @@ export function calculateSimilarity(
   }
 }
 
+export interface MoleculeWarning {
+  code: "abnormalValence" | "highFormalCharge" | "stereoUnspecified";
+  message: string;
+  severity: "warning" | "info";
+}
+
+/**
+ * Lightweight structure QA checks for fast UI badges.
+ */
+export function getMoleculeWarnings(mol: Molecule | null): MoleculeWarning[] {
+  if (!mol) return [];
+
+  const warnings: MoleculeWarning[] = [];
+  const atomCount = mol.getAllAtoms();
+  let hasAbnormalValence = false;
+  let hasHighFormalCharge = false;
+  let potentialStereoWithoutParity = false;
+
+  for (let atom = 0; atom < atomCount; atom++) {
+    if (!hasAbnormalValence && mol.getAtomAbnormalValence(atom) !== -1) {
+      hasAbnormalValence = true;
+    }
+    if (!hasHighFormalCharge && Math.abs(mol.getAtomCharge(atom)) >= 2) {
+      hasHighFormalCharge = true;
+    }
+    // Only flag stereo ambiguity for true stereo centers, not for hypervalent atoms.
+    if (
+      !potentialStereoWithoutParity &&
+      mol.isAtomStereoCenter(atom) &&
+      mol.getAtomParity(atom) === 0 &&
+      mol.getAtomAbnormalValence(atom) === -1
+    ) {
+      potentialStereoWithoutParity = true;
+    }
+  }
+
+  if (hasAbnormalValence) {
+    warnings.push({
+      code: "abnormalValence",
+      message: "Possible abnormal valence detected.",
+      severity: "warning",
+    });
+  }
+  if (hasHighFormalCharge) {
+    warnings.push({
+      code: "highFormalCharge",
+      message: "High formal charge detected (|charge| >= 2).",
+      severity: "warning",
+    });
+  }
+  if (potentialStereoWithoutParity && !hasAbnormalValence) {
+    warnings.push({
+      code: "stereoUnspecified",
+      message: "Potential stereocenters may be unspecified.",
+      severity: "info",
+    });
+  }
+
+  return warnings;
+}
+
+interface PubChemPropertyResponse {
+  PropertyTable?: {
+    Properties?: Array<Record<string, string | number>>;
+  };
+}
+
+// PubChem renamed its SMILES properties (IsomericSMILES/CanonicalSMILES -> SMILES/
+// ConnectivitySMILES). Read whichever form the API returns, preferring full
+// (stereo-bearing) SMILES over connectivity-only.
+function extractSmiles(props?: Record<string, string | number>): string | null {
+  if (!props) return null;
+  const value =
+    props.SMILES ?? props.IsomericSMILES ?? props.CanonicalSMILES ?? props.ConnectivitySMILES;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+export async function smilesToInchi(smiles: string): Promise<{ inchi: string; inchiKey?: string } | null> {
+  const encoded = encodeURIComponent(smiles);
+  const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encoded}/property/InChI,InChIKey/JSON`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = (await response.json()) as PubChemPropertyResponse;
+    const first = data.PropertyTable?.Properties?.[0];
+    if (!first?.InChI) return null;
+    return {
+      inchi: String(first.InChI),
+      inchiKey: first.InChIKey != null ? String(first.InChIKey) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function inchiToSmiles(inchi: string): Promise<string | null> {
+  const encoded = encodeURIComponent(inchi.trim());
+  const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchi/${encoded}/property/SMILES/JSON`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const data = (await response.json()) as PubChemPropertyResponse;
+    return extractSmiles(data.PropertyTable?.Properties?.[0]);
+  } catch {
+    return null;
+  }
+}
+
+// In-memory cache for chemical-name lookups (persists for the page session).
+const nameToSmilesCache = new Map<string, string | null>();
+
+/**
+ * Resolve a chemical name (e.g. "aspirin", "(S)-ibuprofen") to a SMILES string
+ * via the PubChem PUG-REST name endpoint. Returns null when the name is not found
+ * or the request fails. Results are cached for the session.
+ */
+export async function nameToSmiles(name: string): Promise<string | null> {
+  const trimmed = name.trim();
+  const key = trimmed.toLowerCase();
+  if (!trimmed) return null;
+  if (nameToSmilesCache.has(key)) return nameToSmilesCache.get(key) ?? null;
+
+  const encoded = encodeURIComponent(trimmed);
+  const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encoded}/property/SMILES/JSON`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      // 404 (name not found) is a definitive negative — cache it. Other errors aren't cached.
+      if (response.status === 404) nameToSmilesCache.set(key, null);
+      return null;
+    }
+    const data = (await response.json()) as PubChemPropertyResponse;
+    const smiles = extractSmiles(data.PropertyTable?.Properties?.[0]);
+    nameToSmilesCache.set(key, smiles);
+    return smiles;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a systematic IUPAC name (e.g. "2-acetoxybenzoic acid",
+ * "bicyclo[2.2.1]heptane") to SMILES via the OPSIN web service. OPSIN is a
+ * deterministic name parser — fast and ideal for systematic names, but it does
+ * not understand trivial/trade names. Returns null when the name is not
+ * interpretable or the request fails.
+ */
+export async function iupacToSmiles(name: string): Promise<string | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const url = `https://www.ebi.ac.uk/opsin/ws/${encodeURIComponent(trimmed)}.smi`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null; // OPSIN returns 404 with an error body for unparseable names
+    const text = (await response.text()).trim();
+    // A valid OPSIN SMILES response is a single whitespace-free token.
+    if (!text || /\s/.test(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+export type NameSource = "OPSIN" | "PubChem";
+export interface ResolvedName {
+  smiles: string;
+  source: NameSource;
+}
+
+// Combined name-resolution cache (keyed on lowercased name).
+const resolveNameCache = new Map<string, ResolvedName | null>();
+
+/**
+ * Resolve a chemical name to SMILES, trying OPSIN first (systematic IUPAC names)
+ * and falling back to PubChem (common and trade names). Reports which service
+ * produced the result. Cached for the page session.
+ */
+export async function resolveChemicalName(name: string): Promise<ResolvedName | null> {
+  const trimmed = name.trim();
+  const key = trimmed.toLowerCase();
+  if (!trimmed) return null;
+  if (resolveNameCache.has(key)) return resolveNameCache.get(key) ?? null;
+
+  const opsin = await iupacToSmiles(trimmed);
+  if (opsin) {
+    const result: ResolvedName = { smiles: opsin, source: "OPSIN" };
+    resolveNameCache.set(key, result);
+    return result;
+  }
+
+  const pubchem = await nameToSmiles(trimmed);
+  const result: ResolvedName | null = pubchem ? { smiles: pubchem, source: "PubChem" } : null;
+  resolveNameCache.set(key, result);
+  return result;
+}
+
+// ----- GHS safety & hazard data (PubChem) -----
+
+export interface HazardStatement {
+  code: string; // e.g. "H302"
+  text: string; // e.g. "Harmful if swallowed"
+  percent?: string; // ECHA notification agreement, e.g. "95.6%"
+}
+export interface HazardPictogram {
+  name: string; // e.g. "Irritant"
+  url: string; // GHS pictogram SVG
+}
+export interface HazardInfo {
+  cid: number;
+  signal: string | null; // "Danger" | "Warning"
+  pictograms: HazardPictogram[];
+  hazards: HazardStatement[];
+  url: string; // PubChem Safety & Hazards page
+}
+
+interface PugViewMarkup {
+  URL?: string;
+  Type?: string;
+  Extra?: string;
+}
+interface PugViewInformation {
+  Name?: string;
+  Value?: { StringWithMarkup?: Array<{ String?: string; Markup?: PugViewMarkup[] }> };
+}
+interface PugViewSection {
+  TOCHeading?: string;
+  Information?: PugViewInformation[];
+  Section?: PugViewSection[];
+}
+
+function findSection(sections: PugViewSection[], heading: string): PugViewSection | null {
+  for (const s of sections) {
+    if (s.TOCHeading === heading) return s;
+    if (s.Section) {
+      const found = findSection(s.Section, heading);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function firstInfo(section: PugViewSection, name: string): PugViewInformation | undefined {
+  return section.Information?.find((i) => i.Name === name);
+}
+
+function parseHazardStatement(raw: string): HazardStatement | null {
+  // "H302 (95.6%): Harmful if swallowed [Warning Acute toxicity, oral]"
+  const m = raw.match(/^(H\d{3}[A-Za-z\d+]*)\s*(?:\(([^)]+)\))?\s*:\s*(.+?)(?:\s*\[[^\]]*\])?\s*$/);
+  if (!m) return null;
+  return { code: m[1], percent: m[2], text: m[3].trim() };
+}
+
+const hazardsCache = new Map<string, HazardInfo | null>();
+
+/**
+ * Fetch GHS safety & hazard classification for a molecule from PubChem: resolves
+ * the SMILES to a CID, then reads the aggregated GHS Classification (signal word,
+ * pictograms, hazard statements). Returns null when there is no PubChem match or
+ * the request fails; returns a HazardInfo with empty `hazards` when a compound
+ * exists but has no GHS classification. Cached for the page session.
+ */
+export async function fetchHazards(smiles: string): Promise<HazardInfo | null> {
+  const key = smiles.trim();
+  if (!key) return null;
+  if (hazardsCache.has(key)) return hazardsCache.get(key) ?? null;
+
+  try {
+    const cidRes = await fetch(
+      `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(key)}/cids/JSON`
+    );
+    if (!cidRes.ok) {
+      hazardsCache.set(key, null);
+      return null;
+    }
+    const cidData = (await cidRes.json()) as { IdentifierList?: { CID?: number[] } };
+    const cid = cidData.IdentifierList?.CID?.[0];
+    if (!cid) {
+      hazardsCache.set(key, null);
+      return null;
+    }
+
+    const safetyUrl = `https://pubchem.ncbi.nlm.nih.gov/compound/${cid}#section=Safety-and-Hazards`;
+    const ghsRes = await fetch(
+      `https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/${cid}/JSON?heading=GHS+Classification`
+    );
+    if (!ghsRes.ok) {
+      // No GHS section for this compound (common) — resolved, but empty.
+      const empty: HazardInfo = { cid, signal: null, pictograms: [], hazards: [], url: safetyUrl };
+      hazardsCache.set(key, empty);
+      return empty;
+    }
+
+    const ghsData = (await ghsRes.json()) as { Record?: { Section?: PugViewSection[] } };
+    const section = findSection(ghsData.Record?.Section ?? [], "GHS Classification");
+
+    let signal: string | null = null;
+    const pictograms: HazardPictogram[] = [];
+    const hazards: HazardStatement[] = [];
+
+    if (section) {
+      // The first group in the Information array is PubChem's aggregated ECHA summary.
+      signal = firstInfo(section, "Signal")?.Value?.StringWithMarkup?.[0]?.String ?? null;
+
+      const picInfo = firstInfo(section, "Pictogram(s)");
+      const seen = new Set<string>();
+      for (const swm of picInfo?.Value?.StringWithMarkup ?? []) {
+        for (const mk of swm.Markup ?? []) {
+          if (mk.Type === "Icon" && mk.URL && !seen.has(mk.URL)) {
+            seen.add(mk.URL);
+            pictograms.push({ name: mk.Extra ?? "Hazard", url: mk.URL });
+          }
+        }
+      }
+
+      const hazInfo = firstInfo(section, "GHS Hazard Statements");
+      const seenCodes = new Set<string>();
+      for (const swm of hazInfo?.Value?.StringWithMarkup ?? []) {
+        const parsed = swm.String ? parseHazardStatement(swm.String) : null;
+        if (parsed && !seenCodes.has(parsed.code)) {
+          seenCodes.add(parsed.code);
+          hazards.push(parsed);
+        }
+      }
+    }
+
+    const result: HazardInfo = { cid, signal, pictograms, hazards, url: safetyUrl };
+    hazardsCache.set(key, result);
+    return result;
+  } catch {
+    return null; // transient — don't cache, allow retry
+  }
+}
+
+// Word/phrase shape for a common name: letters plus punctuation commonly seen in
+// names (incl. a leading "(" for stereo prefixes like "(S)-ibuprofen").
+const NAME_WORD_SHAPE = /^[A-Za-z(][A-Za-z0-9 '.,()\-+]*$/;
+
+/**
+ * Heuristic: does this (SMILES-invalid) token look like a chemical name — common
+ * or systematic IUPAC — worth resolving to SMILES, rather than a malformed SMILES
+ * string? Applied only to entries that already failed SMILES parsing, so it biases
+ * toward inclusion (a false positive merely yields a cached "not found").
+ */
+export function looksLikeChemicalName(token: string): boolean {
+  const t = token.trim();
+  if (t.length < 3 || t.length > 200) return false;
+  if (t.startsWith("InChI=")) return false; // handled by the InChI converter
+  if (!/[a-zA-Z]/.test(t)) return false; // must contain letters
+  if (/>/.test(t)) return false; // reaction SMILES separator
+
+  // Strong systematic/IUPAC-name signals (override the SMILES-structure exclusion):
+  if (/\s/.test(t)) return true; // names have spaces; SMILES never does
+  if (/,/.test(t)) return true; // locant commas, e.g. "2,4-dichlorophenol"
+  if (/\d-[A-Za-z]|[A-Za-z]-\d/.test(t)) return true; // locant hyphens: "hept-2-ene", "2-aminoethanol"
+  if (/\[[\d.]+\]/.test(t)) return true; // ring brackets: "bicyclo[2.2.1]heptane"
+
+  // Otherwise: a word-like common name with no SMILES bond/bracket structure.
+  if (/[=#[\]]/.test(t)) return false;
+  return NAME_WORD_SHAPE.test(t);
+}
+

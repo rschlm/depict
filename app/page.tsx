@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { Search, Filter, X, Loader2, AlertCircle, CheckCircle2, Layers, ArrowRight, BarChart3, ChevronDown, Sliders, Copy, Check, Pencil, Clipboard, Download, Undo2, Redo2, ArrowUp, ListOrdered, Scale, TestTube2, Crosshair, Droplets, RotateCw, Atom, Droplet, Target, Keyboard, CopyMinus, Link2, FileText, FileCode, Table2, SlidersHorizontal, Image, Printer, Fingerprint } from "lucide-react";
+import { Suspense, useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
+import dynamic from "next/dynamic";
+import { Search, Filter, X, Loader2, AlertCircle, CheckCircle2, Layers, ArrowRight, BarChart3, ChevronDown, Sliders, Copy, Check, Pencil, Clipboard, Download, Undo2, Redo2, ArrowUp, ListOrdered, Scale, TestTube2, Crosshair, Droplets, RotateCw, Atom, Droplet, Target, Keyboard, CopyMinus, Link2, FileText, FileCode, Table2, SlidersHorizontal, Image, Printer, Fingerprint, RefreshCw, LayoutGrid, TableProperties, Wand2 } from "lucide-react";
 import HexagonTwoTone from '@mui/icons-material/HexagonTwoTone';
 import { MoleculeGrid } from "@/components/MoleculeGrid";
 import { MoleculeTable } from "@/components/MoleculeTable";
@@ -13,6 +14,7 @@ import { CommandPalette, type ViewMode } from "@/components/CommandPalette";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SmilesEditor } from "@/components/SmilesEditor";
+import { NameResolver } from "@/components/NameResolver";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty";
@@ -22,7 +24,18 @@ import { DisplaySettings } from "@/components/DisplaySettings";
 import { ThemeSwitcher } from "@/components/ui/theme";
 import { MoleculeDetailPanel } from "@/components/MoleculeDetailPanel";
 import { KetcherPanel } from "@/components/KetcherPanel";
-import { PropertyCharts } from "@/components/PropertyCharts";
+const PropertyCharts = dynamic(
+  () => import("@/components/PropertyCharts").then((mod) => mod.PropertyCharts),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center w-full min-h-[120px] text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+        Loading charts…
+      </div>
+    ),
+  }
+);
 import { Footer } from "@/components/Footer";
 import AppLogo from "@/app/AppLogo";
 import {
@@ -57,16 +70,49 @@ import {
 import { useChemStore } from "@/store/useChemStore";
 import { Molecule, DepictorOptions } from "openchemlib";
 import { MoleculeData } from "@/store/useChemStore";
-import { isReactionSmiles, parseReactionSmiles, deduplicateMolecules, type DeduplicationMode } from "@/utils/chemUtils";
+import { isReactionSmiles, parseReactionSmiles, deduplicateMolecules, inchiToSmiles, type DeduplicationMode } from "@/utils/chemUtils";
 import { exportAllAsSDF, exportAllAsCSV, exportAllAsSMI, exportAllAsRXN, CSV_COLUMNS, generateFilenameFromSmiles } from "@/utils/downloadUtils";
 import { openPrintView } from "@/utils/printUtils";
 import { PropertyFiltersGrid } from "@/components/PropertyFiltersGrid";
 import { CsvExportDialog } from "@/components/CsvExportDialog";
 import { generateSVG } from "@/hooks/useCachedSVG";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { exportProject, importProject, triggerProjectFileOpen } from "@/lib/projectFile";
+import { exportProject, triggerProjectFileOpen } from "@/lib/projectFile";
 import { motion } from "motion/react";
-import { LayoutGrid, TableProperties } from "lucide-react";
+
+const INPUT_HISTORY_MAX = 50;
+
+type InputHistoryState = { history: string[]; index: number };
+
+type InputHistoryAction =
+  | { type: "push"; value: string }
+  | { type: "undo" }
+  | { type: "redo" }
+  | { type: "reset"; entries: string[] };
+
+function inputHistoryReducer(state: InputHistoryState, action: InputHistoryAction): InputHistoryState {
+  switch (action.type) {
+    case "push": {
+      const valueToPush = action.value;
+      const idx = state.index;
+      const truncated = state.history.slice(0, idx + 1);
+      if (truncated[truncated.length - 1] === valueToPush) return state;
+      let next = [...truncated, valueToPush];
+      if (next.length > INPUT_HISTORY_MAX) next = next.slice(-INPUT_HISTORY_MAX);
+      return { history: next, index: next.length - 1 };
+    }
+    case "undo":
+      if (state.index <= 0) return state;
+      return { ...state, index: state.index - 1 };
+    case "redo":
+      if (state.index >= state.history.length - 1) return state;
+      return { ...state, index: state.index + 1 };
+    case "reset":
+      return { history: action.entries, index: 0 };
+    default:
+      return state;
+  }
+}
 
 function HomeContent() {
   const {
@@ -144,6 +190,7 @@ function HomeContent() {
   const [typeFilter, setTypeFilter] = useState<"all" | "molecules" | "reactions">("all");
 
   const [csvExportDialogOpen, setCsvExportDialogOpen] = useState(false);
+  const [convertingInchi, setConvertingInchi] = useState(false);
   const [csvExportTarget, setCsvExportTarget] = useState<{
     molecules: MoleculeData[];
     filename?: string;
@@ -164,15 +211,16 @@ function HomeContent() {
   const [moleculeToEdit, setMoleculeToEdit] = useState<string | undefined>(undefined);
   const [editingMoleculeId, setEditingMoleculeId] = useState<string | null>(null);
 
-  // Undo/redo for SMILES input
-  const INPUT_HISTORY_MAX = 50;
-  const [inputHistory, setInputHistory] = useState<string[]>([""]);
-  const [inputHistoryIndex, setInputHistoryIndex] = useState(0);
+  // Undo/redo for SMILES input (single reducer keeps history + index in sync after debounced pushes)
+  const [inputHistoryState, dispatchInputHistory] = useReducer(inputHistoryReducer, {
+    history: [""],
+    index: 0,
+  });
+  const inputHistory = inputHistoryState.history;
+  const inputHistoryIndex = inputHistoryState.index;
   const skipNextPushRef = useRef(false);
   const skipNextSyncRef = useRef(false);
   const debouncePushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const historyIndexRef = useRef(0);
-  historyIndexRef.current = inputHistoryIndex;
 
   const handleSmilesInputChange = useCallback((value: string) => {
     setSmilesInput(value);
@@ -185,34 +233,24 @@ function HomeContent() {
     debouncePushRef.current = setTimeout(() => {
       debouncePushRef.current = null;
       if (skipNextPushRef.current) return;
-      const idx = historyIndexRef.current;
-      setInputHistory((prev) => {
-        const truncated = prev.slice(0, idx + 1);
-        if (truncated[truncated.length - 1] === valueToPush) return prev;
-        const next = [...truncated, valueToPush];
-        return next.length > INPUT_HISTORY_MAX ? next.slice(-INPUT_HISTORY_MAX) : next;
-      });
-      setInputHistoryIndex((prev) => {
-        const truncated = inputHistory.slice(0, prev + 1);
-        return Math.min(truncated.length, INPUT_HISTORY_MAX - 1);
-      });
+      dispatchInputHistory({ type: "push", value: valueToPush });
     }, 600);
-  }, [inputHistory]);
+  }, []);
 
   const handleUndo = useCallback(() => {
     if (inputHistoryIndex <= 0) return;
     skipNextPushRef.current = true;
     const nextIndex = inputHistoryIndex - 1;
-    setInputHistoryIndex(nextIndex);
     setSmilesInput(inputHistory[nextIndex] ?? "");
+    dispatchInputHistory({ type: "undo" });
   }, [inputHistoryIndex, inputHistory]);
 
   const handleRedo = useCallback(() => {
     if (inputHistoryIndex >= inputHistory.length - 1) return;
     skipNextPushRef.current = true;
     const nextIndex = inputHistoryIndex + 1;
-    setInputHistoryIndex(nextIndex);
     setSmilesInput(inputHistory[nextIndex] ?? "");
+    dispatchInputHistory({ type: "redo" });
   }, [inputHistoryIndex, inputHistory]);
 
   const handleClear = useCallback(() => {
@@ -349,8 +387,7 @@ function HomeContent() {
     const parsed = parseSearchParams(searchParams);
     if (parsed.smilesData != null && parsed.smilesData !== "") {
       setSmilesInput(parsed.smilesData);
-      setInputHistory([parsed.smilesData]);
-      setInputHistoryIndex(0);
+      dispatchInputHistory({ type: "reset", entries: [parsed.smilesData] });
       const session = loadSession();
       const defaults = {
         displayOptions: { suppressChiralText: true },
@@ -380,8 +417,7 @@ function HomeContent() {
       setHideActionButtons(session.hideActionButtons);
       setHideProperties(session.hideProperties);
       setCardsPerRow(session.cardsPerRow);
-      setInputHistory([session.smilesInput]);
-      setInputHistoryIndex(0);
+      dispatchInputHistory({ type: "reset", entries: [session.smilesInput] });
       saveSession(session);
     }
   }, [setCardsPerRow, searchParams]);
@@ -567,8 +603,7 @@ function HomeContent() {
           setHideActionButtons(last.hideActionButtons);
           setHideProperties(last.hideProperties);
           setCardsPerRow(last.cardsPerRow);
-          setInputHistory([last.smilesInput]);
-          setInputHistoryIndex(0);
+          dispatchInputHistory({ type: "reset", entries: [last.smilesInput] });
           saveSession(last);
           toast.success("Session restored");
         },
@@ -810,7 +845,7 @@ function HomeContent() {
   // Calculate properties after molecules are set
   useEffect(() => {
     // Only calculate if we have molecules without properties
-    if (molecules.length > 0 && molecules.some(m => m.properties === null && m.mol !== null)) {
+    if (molecules.length > 0 && molecules.some(m => m.mol !== null && m.propertiesStatus !== "done" && m.propertiesStatus !== "error")) {
       // Use a small delay to batch rapid changes
       const calcTimer = setTimeout(() => {
         calculateProperties();
@@ -853,6 +888,85 @@ function HomeContent() {
       },
     });
   }, [handleSmilesInputChange, setMolecules]);
+
+  const handleConvertInchiInput = useCallback(async () => {
+    if (!smilesInput.trim() || convertingInchi) return;
+    const entries = smilesInput
+      .split(/\n/)
+      .flatMap((line) => line.split(","))
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (entries.length === 0) return;
+    const inchiIndexes = entries
+      .map((value, index) => ({ value, index }))
+      .filter(({ value }) => value.startsWith("InChI="));
+    if (inchiIndexes.length === 0) {
+      toast.info("No InChI entries found in the input.");
+      return;
+    }
+
+    setConvertingInchi(true);
+    const updates = await Promise.all(
+      inchiIndexes.map(async ({ value, index }) => ({ index, smiles: await inchiToSmiles(value) }))
+    );
+    setConvertingInchi(false);
+
+    let converted = 0;
+    for (const update of updates) {
+      if (!update.smiles) continue;
+      entries[update.index] = update.smiles;
+      converted += 1;
+    }
+
+    if (converted === 0) {
+      toast.error("Failed to convert InChI entries.");
+      return;
+    }
+    skipNextPushRef.current = true;
+    handleSmilesInputChange(entries.join("\n"));
+    toast.success(`Converted ${converted} InChI entr${converted === 1 ? "y" : "ies"} to SMILES.`);
+  }, [smilesInput, convertingInchi, handleSmilesInputChange]);
+
+  const handleCanonicalizeInput = useCallback(() => {
+    if (!smilesInput.trim()) return;
+    const entries = smilesInput
+      .split(/\n/)
+      .flatMap((line) => line.split(","))
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (entries.length === 0) return;
+
+    let changed = 0;
+    const canonical = entries.map((entry) => {
+      try {
+        // Leave reactions untouched — canonicalize plain molecules only.
+        if (isReactionSmiles(entry)) return entry;
+        const c = Molecule.fromSmiles(entry).toSmiles();
+        if (c && c !== entry) changed += 1;
+        return c || entry;
+      } catch {
+        return entry; // keep invalid/unparseable entries as-is
+      }
+    });
+
+    if (changed === 0) {
+      toast.info("SMILES are already canonical.");
+      return;
+    }
+
+    const previous = smilesInput;
+    skipNextPushRef.current = true;
+    handleSmilesInputChange(canonical.join("\n"));
+    toast.success(`Canonicalized ${changed} SMILES`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          skipNextPushRef.current = true;
+          handleSmilesInputChange(previous);
+        },
+      },
+    });
+  }, [smilesInput, handleSmilesInputChange]);
 
   // Ketcher handlers
   const handleDrawMolecule = () => {
@@ -1896,6 +2010,37 @@ function HomeContent() {
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40"
+                                onClick={handleCanonicalizeInput}
+                              >
+                                <Wand2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              <span className="text-xs">Canonicalize SMILES</span>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40"
+                                onClick={() => { void handleConvertInchiInput(); }}
+                                disabled={convertingInchi}
+                              >
+                                {convertingInchi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              <span className="text-xs">Convert InChI lines to SMILES</span>
+                            </TooltipContent>
+                          </Tooltip>
 
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -1920,7 +2065,7 @@ function HomeContent() {
                   <SmilesEditor
                     value={smilesInput}
                     onChange={handleSmilesInputChange}
-                    placeholder="Paste SMILES here (comma or newline separated)..."
+                    placeholder="Paste SMILES, or type a name or IUPAC (e.g. aspirin, 2-acetoxybenzoic acid)…"
                     minHeight="80px"
                     maxHeight="300px"
                     invalidSmiles={invalidSmiles}
@@ -1928,6 +2073,11 @@ function HomeContent() {
                     onImagePaste={() => {
                       toast.info("Image-to-SMILES conversion is not yet available. Please paste SMILES text instead, or use the Ketcher editor to draw structures.");
                     }}
+                  />
+                  <NameResolver
+                    invalidEntries={invalidSmiles}
+                    value={smilesInput}
+                    onApply={handleSmilesInputChange}
                   />
                 </div>
 

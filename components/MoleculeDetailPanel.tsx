@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { X, Copy, Check, Download, ExternalLink, ShoppingCart, FileText, Pencil, Beaker, FlaskConical, TestTube, Search, Scale, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ChevronDown, ArrowRight } from "lucide-react";
+import { X, Copy, Check, Download, ExternalLink, ShoppingCart, FileText, Pencil, Beaker, FlaskConical, TestTube, Search, Scale, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ChevronDown, ArrowRight, AlertTriangle, Info } from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { ChemDepict } from "./ChemDepict";
 import { useCachedSVG } from "@/hooks/useCachedSVG";
@@ -11,7 +11,7 @@ import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { MoleculeData, useChemStore } from "@/store/useChemStore";
 import { DepictorOptions, Molecule, Reaction } from "openchemlib";
-import { getPubChemUrl, getEMoleculesUrl, getGooglePatentsUrl, getReaxysUrl, getSciFinderUrl, getReactionAtomBalance, isReactionSmiles, parseReactionSmiles, getRo5Details } from "@/utils/chemUtils";
+import { getPubChemUrl, getEMoleculesUrl, getGooglePatentsUrl, getReaxysUrl, getSciFinderUrl, getReactionAtomBalance, isReactionSmiles, parseReactionSmiles, getRo5Details, getMoleculeWarnings, smilesToInchi, fetchHazards, type HazardInfo } from "@/utils/chemUtils";
 import { downloadSVG, generateFilenameFromSmiles } from "@/utils/downloadUtils";
 import { downloadPNG } from "@/utils/pngExport";
 
@@ -108,6 +108,10 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
     const [svgContent, setSvgContent] = useState<string | null>(null);
     const [ro5Expanded, setRo5Expanded] = useState(false);
     const [smilesExpanded, setSmilesExpanded] = useState(false);
+    const [copyingInchi, setCopyingInchi] = useState(false);
+    const [copiedInchi, setCopiedInchi] = useState(false);
+    const [hazards, setHazards] = useState<HazardInfo | null>(null);
+    const [hazardsStatus, setHazardsStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
     const reactionArrowStyle = useChemStore((state) => state.reactionArrowStyle);
     const setReactionArrowStyle = useChemStore((state) => state.setReactionArrowStyle);
 
@@ -143,6 +147,26 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
         if (open) document.addEventListener("keydown", handleEscape);
         return () => document.removeEventListener("keydown", handleEscape);
     }, [open, onClose]);
+
+    // Fetch GHS safety & hazard data from PubChem when a molecule (not a reaction) is opened.
+    useEffect(() => {
+        if (!open || !molecule || isReactionSmiles(molecule.smiles)) {
+            setHazards(null);
+            setHazardsStatus("idle");
+            return;
+        }
+        let cancelled = false;
+        setHazards(null);
+        setHazardsStatus("loading");
+        fetchHazards(molecule.smiles)
+            .then((res) => {
+                if (cancelled) return;
+                if (res) { setHazards(res); setHazardsStatus("done"); }
+                else { setHazards(null); setHazardsStatus("error"); }
+            })
+            .catch(() => { if (!cancelled) setHazardsStatus("error"); });
+        return () => { cancelled = true; };
+    }, [molecule?.id, molecule?.smiles, open]);
 
     const reactionDetails = useMemo(() => {
         if (!molecule) return null;
@@ -217,8 +241,19 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
     const properties = molecule.properties;
     const rxnMeta = molecule.reactionMeta;
     const displayName = molecule.name || null;
+    const qaWarnings = !isReaction ? getMoleculeWarnings(molecule.mol) : [];
 
     const handleCopySmiles = () => { navigator.clipboard.writeText(molecule.smiles); setCopiedSmiles(true); setTimeout(() => setCopiedSmiles(false), 2000); };
+    const handleCopyInchi = async () => {
+        if (isReaction || copyingInchi) return;
+        setCopyingInchi(true);
+        const result = await smilesToInchi(molecule.smiles);
+        setCopyingInchi(false);
+        if (!result?.inchi) return;
+        navigator.clipboard.writeText(result.inchi);
+        setCopiedInchi(true);
+        setTimeout(() => setCopiedInchi(false), 2000);
+    };
     const handleDownloadSVG = () => { if (svgContent) downloadSVG(svgContent, generateFilenameFromSmiles(molecule.smiles, "svg")); };
     const handleDownloadPNG = () => { if (svgContent) downloadPNG(svgContent, generateFilenameFromSmiles(molecule.smiles, "png")).catch(() => {}); };
     const handleDownloadMOL = () => { try { const mol = molecule.mol || Molecule.fromSmiles(molecule.smiles); const molfile = mol.toMolfile(); const blob = new Blob([molfile], { type: "text/plain" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = generateFilenameFromSmiles(molecule.smiles, "mol"); a.click(); URL.revokeObjectURL(url); } catch { /* */ } };
@@ -370,6 +405,23 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
                                             {properties.stereoCenterCount != null && <MetricCard label="Stereo Centers" value={String(properties.stereoCenterCount)} />}
                                         </div>
                                     </div>
+                                    {qaWarnings.length > 0 && (
+                                        <div>
+                                            <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Structure QA</h3>
+                                            <div className="space-y-1.5">
+                                                {qaWarnings.map((warning) => (
+                                                    <div key={warning.code} className={`flex items-center gap-2 px-2.5 py-2 rounded-md border ${warning.severity === "warning" ? "bg-amber-500/10 border-amber-500/20" : "bg-blue-500/10 border-blue-500/20"}`}>
+                                                        {warning.severity === "warning" ? (
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                                        ) : (
+                                                            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                        )}
+                                                        <span className="text-xs">{warning.message}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Ro5 Compact Inline */}
                                     {properties.ro5Violations !== undefined && (() => {
@@ -410,6 +462,93 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
                                         );
                                     })()}
                                 </>
+                            )}
+
+                            {/* === SAFETY & HAZARDS (GHS, from PubChem) === */}
+                            {!isReaction && hazardsStatus !== "idle" && (
+                                <div>
+                                    <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                                        <ShieldAlert className="w-3.5 h-3.5" />
+                                        Safety &amp; Hazards
+                                        <span className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground/50">GHS · PubChem</span>
+                                    </h3>
+
+                                    {hazardsStatus === "loading" && (
+                                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-muted/20 border border-border/20">
+                                            <Skeleton className="w-10 h-10 rounded" />
+                                            <div className="flex-1 space-y-1.5">
+                                                <Skeleton className="h-3 w-24" />
+                                                <Skeleton className="h-3 w-full" />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {hazardsStatus === "error" && (
+                                        <p className="text-xs text-muted-foreground/70 px-3 py-2.5 rounded-lg bg-muted/20 border border-border/20">
+                                            No PubChem match for this structure.
+                                        </p>
+                                    )}
+
+                                    {hazardsStatus === "done" && hazards && (
+                                        hazards.hazards.length === 0 && hazards.pictograms.length === 0 && !hazards.signal ? (
+                                            <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-emerald-500/8 border border-emerald-500/20">
+                                                <span className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
+                                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                                    No GHS hazard classification in PubChem
+                                                </span>
+                                                <a href={hazards.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 shrink-0">
+                                                    PubChem <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
+                                            </div>
+                                        ) : (
+                                            <div className="rounded-lg border border-border/30 overflow-hidden">
+                                                {/* Signal word + pictograms */}
+                                                {(hazards.signal || hazards.pictograms.length > 0) && (
+                                                    <div className="flex items-center gap-3 px-3 py-2.5 bg-muted/20 border-b border-border/20">
+                                                        {hazards.signal && (
+                                                            <span className={`text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded ${/danger/i.test(hazards.signal) ? "bg-red-500/15 text-red-600 dark:text-red-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"}`}>
+                                                                {hazards.signal}
+                                                            </span>
+                                                        )}
+                                                        {hazards.pictograms.length > 0 && (
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                {hazards.pictograms.map((p) => (
+                                                                    <Tooltip key={p.url}>
+                                                                        <TooltipTrigger asChild>
+                                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                                            <img src={p.url} alt={p.name} width={40} height={40} className="w-10 h-10" loading="lazy" />
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent className="text-xs">{p.name}</TooltipContent>
+                                                                    </Tooltip>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Hazard statements */}
+                                                {hazards.hazards.length > 0 && (
+                                                    <ul className="divide-y divide-border/15">
+                                                        {hazards.hazards.map((h) => (
+                                                            <li key={h.code} className="flex items-start gap-2.5 px-3 py-2">
+                                                                <span className="text-[10px] font-mono font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-1.5 py-0.5 shrink-0 mt-0.5 tabular-nums">{h.code}</span>
+                                                                <span className="text-xs text-foreground/90 flex-1 leading-snug">{h.text}</span>
+                                                                {h.percent && <span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0 mt-0.5">{h.percent}</span>}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+
+                                                <a href={hazards.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-end gap-0.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground border-t border-border/15 bg-muted/10">
+                                                    Full safety data on PubChem <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
+                                            </div>
+                                        )
+                                    )}
+                                    <p className="text-[10px] text-muted-foreground/50 mt-1.5 leading-snug">
+                                        Aggregated GHS data from ECHA C&amp;L notifications via PubChem. For guidance only — consult the official SDS.
+                                    </p>
+                                </div>
                             )}
 
                             {/* === REACTION DETAILS === */}
@@ -562,6 +701,12 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
                                             {copiedSmiles ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
                                             {copiedSmiles ? "Copied" : "SMILES"}
                                         </Button>
+                                        {!isReaction && (
+                                            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleCopyInchi} disabled={copyingInchi}>
+                                                {copiedInchi ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                                                {copyingInchi ? "InChI..." : copiedInchi ? "InChI copied" : "InChI"}
+                                            </Button>
+                                        )}
                                         {isReaction ? (
                                             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleDownloadRXN}>
                                                 <Download className="w-3 h-3" /> RXN

@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   
   // Enable Turbopack (Next.js 16 default)
   turbopack: {},
+
+  // Tree-shake barrel imports from large packages to shrink the client bundle
+  experimental: {
+    optimizePackageImports: ['recharts', '@mui/icons-material', 'lucide-react'],
+  },
 };
 
 export default nextConfig;

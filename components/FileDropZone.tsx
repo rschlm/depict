@@ -57,8 +57,24 @@ export function FileDropZone() {
                 return;
             }
 
-            const smiles = molecules.map((m) => m.smiles);
-            const metadata = molecules.map((m) => {
+            const nonEmpty = molecules
+                .map((m) => ({ smiles: (m.smiles ?? "").trim(), properties: m.properties }))
+                .filter((m) => m.smiles.length > 0);
+
+            if (nonEmpty.length === 0) {
+                setStatus("error");
+                toast.error("No molecules found", {
+                    description: `The file "${file.name}" didn't contain any non-empty structures.`,
+                });
+                setTimeout(() => {
+                    setStatus("idle");
+                    setIsProcessing(false);
+                }, 2000);
+                return;
+            }
+
+            const smiles = nonEmpty.map((m) => m.smiles);
+            const metadata = nonEmpty.map((m) => {
                 if (!m.properties) return {};
                 const name = (m.properties["Name"] ?? m.properties["name"] ?? m.properties["IDNUMBER"] ?? m.properties["ID"]) as string | undefined;
                 const customProperties: Record<string, string> = {};
@@ -75,7 +91,7 @@ export function FileDropZone() {
             setStatus("success");
 
             toast.success("Import successful", {
-                description: `Imported ${molecules.length.toLocaleString()} structure${molecules.length === 1 ? "" : "s"}`,
+                description: `Imported ${nonEmpty.length.toLocaleString()} structure${nonEmpty.length === 1 ? "" : "s"}`,
             });
 
             setTimeout(() => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, memo } from "react";
-import { ExternalLink, FlaskConical, FileText, ShoppingCart, Copy, Check, Weight, Droplet, Download, Pin, Code, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ArrowRight, Scale, Layers } from "lucide-react";
+import { ExternalLink, FlaskConical, FileText, ShoppingCart, Copy, Check, Weight, Droplet, Download, Pin, Code, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ArrowRight, Scale, Layers, AlertTriangle } from "lucide-react";
 import { ChemDepict } from "./ChemDepict";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -17,6 +17,7 @@ import {
   getGooglePatentsUrl,
   getReaxysUrl,
   getSciFinderUrl,
+  getMoleculeWarnings,
 } from "@/utils/chemUtils";
 import { downloadSVG, generateFilenameFromSmiles } from "@/utils/downloadUtils";
 import { downloadPNG } from "@/utils/pngExport";
@@ -56,6 +57,7 @@ export const MoleculeCard = memo(function MoleculeCard({ molecule, displayOption
   const logP = properties?.logP ?? null;
   const mw = properties?.mw ?? null;
   const isSafeLogP = logP !== null && logP < 5;
+  const qaWarnings = !isReaction ? getMoleculeWarnings(molecule.mol) : [];
 
   const handleCopySmiles = async () => {
     try {
@@ -269,6 +271,21 @@ export const MoleculeCard = memo(function MoleculeCard({ molecule, displayOption
               </div>
             )}
           </div>
+        )}
+        {!hideProperties && !isReaction && qaWarnings.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={`inline-flex items-center rounded border border-amber-500/20 bg-amber-500/10 ${compact ? "gap-0.5 px-1 py-0.5 mb-1" : "gap-1 px-1.5 py-0.5 mb-2"}`}>
+                <AlertTriangle className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} text-amber-500`} />
+                <span className={`font-sans font-medium text-amber-600 dark:text-amber-400 ${compact ? "text-[9px]" : "text-[10px]"}`}>
+                  {qaWarnings.length} warning{qaWarnings.length > 1 ? "s" : ""}
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <span className="text-xs">{qaWarnings.map((w) => w.message).join(" ")}</span>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* Molecule property chips */}
