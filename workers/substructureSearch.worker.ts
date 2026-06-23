@@ -1,4 +1,5 @@
 import { Molecule, SSSearcher, SmilesParser } from 'openchemlib';
+import { isReactionSmiles, getReactionComponentSmiles } from '../lib/reactionSmiles';
 
 export interface SubstructureSearchRequest {
     querySmiles: string;
@@ -12,39 +13,6 @@ export interface SubstructureSearchProgress {
 }
 
 const BATCH_SIZE = 100;
-
-function isReactionSmiles(smiles: string): boolean {
-    const s = smiles.trim();
-    if (!s) return false;
-    if (s.includes('>>')) return true;
-    const withoutBrackets = s.replace(/\[[^\]]*\]/g, '');
-    if (!withoutBrackets.includes('>')) return false;
-    const parts = withoutBrackets.split('>').filter((p) => p.trim().length > 0);
-    return parts.length >= 2;
-}
-
-function getReactionComponentSmiles(smiles: string): string[] {
-    const components: string[] = [];
-    if (smiles.includes('>>')) {
-        const steps = smiles.split('>>').filter((s) => s.trim().length > 0);
-        for (const step of steps) {
-            if (step.includes('>')) {
-                const parts = step.split('>').filter((p) => p.trim().length > 0);
-                for (const part of parts) {
-                    part.split('.').filter((s) => s.trim().length > 0).forEach((s) => components.push(s.trim()));
-                }
-            } else {
-                step.split('.').filter((s) => s.trim().length > 0).forEach((s) => components.push(s.trim()));
-            }
-        }
-    } else {
-        const parts = smiles.split('>').filter((p) => p.trim().length > 0);
-        for (const part of parts) {
-            part.split('.').filter((s) => s.trim().length > 0).forEach((s) => components.push(s.trim()));
-        }
-    }
-    return components;
-}
 
 /** Parse query as SMILES or SMARTS; returns a Molecule suitable for SSSearcher fragment. */
 function parseQueryToFragment(query: string): Molecule {

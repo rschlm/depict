@@ -1,4 +1,7 @@
 import { Molecule, MoleculeProperties, Reaction, SSSearcher, SSSearcherWithIndex } from "openchemlib";
+import { isReactionSmiles } from "@/lib/reactionSmiles";
+
+export { isReactionSmiles } from "@/lib/reactionSmiles";
 
 /**
  * Parse and validate reaction SMILES. Returns Reaction for Daylight format (single >),
@@ -119,34 +122,6 @@ export function deduplicateMolecules<T extends { smiles: string; mol: Molecule |
     deduplicated,
     removedCount: molecules.length - deduplicated.length,
   };
-}
-
-/**
- * Daylight Reaction SMILES format:
- * - Reactants>Products (2 parts) or Reactants>Agents>Products (3 parts)
- * - Each part can have multiple molecules separated by "."
- * - Agents = catalysts, solvents; do not contribute atoms to products
- *
- * Also supports multi-step (>>) convention: A>>B>>C
- *
- * Exported for use across app, store, and components; workers keep a minimal copy (see propertyCalculator.worker.ts).
- */
-export function isReactionSmiles(smiles: string): boolean {
-  const s = smiles.trim();
-  if (!s) return false;
-
-  // Multi-step convention: XXXX>>XXXX>>XXXX (sequential steps)
-  if (s.includes('>>')) {
-    return true;
-  }
-
-  // Daylight format: single > separates parts (Reactants>Products or Reactants>Agents>Products)
-  // Exclude > inside brackets (e.g. [Fe+2] or stereo)
-  const withoutBrackets = s.replace(/\[[^\]]*\]/g, '');
-  if (!withoutBrackets.includes('>')) return false;
-
-  const parts = withoutBrackets.split('>').filter((p) => p.trim().length > 0);
-  return parts.length >= 2;
 }
 
 /**

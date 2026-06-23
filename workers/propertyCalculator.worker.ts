@@ -1,4 +1,5 @@
 import { Molecule, MoleculeProperties } from 'openchemlib';
+import { isReactionSmiles } from '../lib/reactionSmiles';
 
 export interface PropertyCalculationRequest {
     smiles: string;
@@ -23,18 +24,6 @@ export interface PropertyCalculationResponse {
         ro5Violations: number;
     } | null;
     error?: string;
-}
-
-// Keep in sync with utils/chemUtils.isReactionSmiles (workers cannot import app code)
-// Daylight format: Reactants>Products or Reactants>Agents>Products; also multi-step (>>)
-function isReactionSmiles(smiles: string): boolean {
-    const s = smiles.trim();
-    if (!s) return false;
-    if (s.includes('>>')) return true;
-    const withoutBrackets = s.replace(/\[[^\]]*\]/g, '');
-    if (!withoutBrackets.includes('>')) return false;
-    const parts = withoutBrackets.split('>').filter((p) => p.trim().length > 0);
-    return parts.length >= 2;
 }
 
 self.onmessage = (e: MessageEvent<PropertyCalculationRequest>) => {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, memo } from "react";
-import { ExternalLink, FlaskConical, FileText, ShoppingCart, Copy, Check, Weight, Droplet, Download, Pin, Code, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ArrowRight, Scale, Layers, AlertTriangle } from "lucide-react";
+import { ExternalLink, FlaskConical, FileText, ShoppingCart, Copy, Check, Weight, Droplet, Download, Pin, Code, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ArrowRight, Scale, Layers, AlertTriangle } from "lucide-react";
+import { FormulaDisplay, getRo5Styling } from "./chemDisplay";
 import { ChemDepict } from "./ChemDepict";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -293,8 +294,9 @@ export const MoleculeCard = memo(function MoleculeCard({ molecule, displayOption
           <div className={`flex flex-wrap items-center ${compact ? "gap-1 mb-1" : "gap-1.5 mb-2"}`}>
             {properties.molecularFormula && (
               <div className={`flex items-center rounded bg-muted/30 ${compact ? "gap-0.5 px-1 py-0.5" : "gap-1 px-1.5 py-0.5"}`}>
-                <span className={`font-mono text-foreground font-medium ${compact ? "text-[9px]" : "text-[10px]"}`}
-                  dangerouslySetInnerHTML={{ __html: properties.molecularFormula.replace(/(\d+)/g, '<sub>$1</sub>') }}
+                <FormulaDisplay
+                  formula={properties.molecularFormula}
+                  className={`font-mono text-foreground font-medium ${compact ? "text-[9px]" : "text-[10px]"}`}
                 />
               </div>
             )}
@@ -320,33 +322,24 @@ export const MoleculeCard = memo(function MoleculeCard({ molecule, displayOption
                 </span>
               </div>
             )}
-            {properties.ro5Violations !== undefined && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className={`flex items-center rounded ${compact ? "gap-0.5 px-1 py-0.5" : "gap-1 px-1.5 py-0.5"} ${
-                    properties.ro5Violations === 0 ? "bg-emerald-500/10" : properties.ro5Violations === 1 ? "bg-amber-500/10" : "bg-red-500/10"
-                  }`}>
-                    {properties.ro5Violations === 0 ? (
-                      <ShieldCheck className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} text-emerald-500`} />
-                    ) : properties.ro5Violations === 1 ? (
-                      <ShieldAlert className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} text-amber-500`} />
-                    ) : (
-                      <ShieldX className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} text-red-500`} />
-                    )}
-                    <span className={`font-sans font-medium ${compact ? "text-[9px]" : "text-[10px]"} ${
-                      properties.ro5Violations === 0 ? "text-emerald-500" : properties.ro5Violations === 1 ? "text-amber-500" : "text-red-500"
-                    }`}>
-                      Ro5
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <span className="text-xs">
-                    {properties.ro5Violations === 0 ? "Passes Lipinski Rule of 5" : `${properties.ro5Violations} Ro5 violation${properties.ro5Violations > 1 ? "s" : ""}`}
-                  </span>
-                </TooltipContent>
-              </Tooltip>
-            )}
+            {properties.ro5Violations !== undefined && (() => {
+              const ro5 = getRo5Styling(properties.ro5Violations);
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className={`flex items-center rounded ${compact ? "gap-0.5 px-1 py-0.5" : "gap-1 px-1.5 py-0.5"} ${ro5.bg}`}>
+                      <ro5.Icon className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} ${ro5.text}`} />
+                      <span className={`font-sans font-medium ${compact ? "text-[9px]" : "text-[10px]"} ${ro5.text}`}>
+                        Ro5
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <span className="text-xs">{ro5.label}</span>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })()}
             {similarityScore != null && similarityScore > 0 && (
               <div className={`flex items-center rounded bg-violet-500/10 ${compact ? "gap-0.5 px-1 py-0.5" : "gap-1 px-1.5 py-0.5"}`}>
                 <Fingerprint className={`${compact ? "w-2 h-2" : "w-2.5 h-2.5"} text-violet-500`} />

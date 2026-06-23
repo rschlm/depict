@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { X, ArrowLeftRight, ChevronUp, ChevronDown, ShieldCheck, ShieldAlert, ShieldX } from "lucide-react";
+import { X, ArrowLeftRight, ChevronUp, ChevronDown } from "lucide-react";
 import { ChemDepict } from "./ChemDepict";
+import { FormulaDisplay, getRo5Styling } from "./chemDisplay";
 import { Button } from "./ui/button";
 import { useChemStore } from "@/store/useChemStore";
 import { DepictorOptions } from "openchemlib";
@@ -100,8 +101,9 @@ export function CompareBar({ displayOptions }: CompareBarProps) {
                                         <div className="flex flex-wrap items-center gap-1.5">
                                             {molecule.properties.molecularFormula && (
                                                 <div className="flex items-center gap-1 bg-muted/30 px-1.5 py-0.5 rounded">
-                                                    <span className="text-[10px] font-mono text-foreground font-medium"
-                                                        dangerouslySetInnerHTML={{ __html: molecule.properties.molecularFormula.replace(/(\d+)/g, '<sub>$1</sub>') }}
+                                                    <FormulaDisplay
+                                                        formula={molecule.properties.molecularFormula}
+                                                        className="text-[10px] font-mono text-foreground font-medium"
                                                     />
                                                 </div>
                                             )}
@@ -117,16 +119,15 @@ export function CompareBar({ displayOptions }: CompareBarProps) {
                                                     {molecule.properties.logP.toFixed(2)}
                                                 </span>
                                             </div>
-                                            {molecule.properties.ro5Violations !== undefined && (
-                                                <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${
-                                                    molecule.properties.ro5Violations === 0 ? "bg-emerald-500/10" : molecule.properties.ro5Violations === 1 ? "bg-amber-500/10" : "bg-red-500/10"
-                                                }`}>
-                                                    {molecule.properties.ro5Violations === 0 ? <ShieldCheck className="w-2.5 h-2.5 text-emerald-500" /> : molecule.properties.ro5Violations === 1 ? <ShieldAlert className="w-2.5 h-2.5 text-amber-500" /> : <ShieldX className="w-2.5 h-2.5 text-red-500" />}
-                                                    <span className={`text-[10px] font-sans font-medium ${
-                                                        molecule.properties.ro5Violations === 0 ? "text-emerald-500" : molecule.properties.ro5Violations === 1 ? "text-amber-500" : "text-red-500"
-                                                    }`}>Ro5</span>
-                                                </div>
-                                            )}
+                                            {molecule.properties.ro5Violations !== undefined && (() => {
+                                                const ro5 = getRo5Styling(molecule.properties.ro5Violations);
+                                                return (
+                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded ${ro5.bg}`}>
+                                                        <ro5.Icon className={`w-2.5 h-2.5 ${ro5.text}`} />
+                                                        <span className={`text-[10px] font-sans font-medium ${ro5.text}`}>Ro5</span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                 </div>
@@ -170,8 +171,8 @@ export function CompareBar({ displayOptions }: CompareBarProps) {
                                         return (
                                             <tr key={row.key} className="border-b border-border/20 hover:bg-muted/20">
                                                 <td className="px-3 py-1 text-muted-foreground">{row.label}</td>
-                                                <td className="px-3 py-1 text-right font-mono" dangerouslySetInnerHTML={{ __html: String(vA ?? "").replace(/(\d+)/g, '<sub>$1</sub>') }} />
-                                                <td className="px-3 py-1 text-right font-mono" dangerouslySetInnerHTML={{ __html: String(vB ?? "").replace(/(\d+)/g, '<sub>$1</sub>') }} />
+                                                <td className="px-3 py-1 text-right font-mono"><FormulaDisplay formula={String(vA ?? "")} /></td>
+                                                <td className="px-3 py-1 text-right font-mono"><FormulaDisplay formula={String(vB ?? "")} /></td>
                                                 <td className="px-3 py-1 text-right text-muted-foreground/50">—</td>
                                             </tr>
                                         );

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { X, Copy, Check, Download, ExternalLink, ShoppingCart, FileText, Pencil, Beaker, FlaskConical, TestTube, Search, Scale, Fingerprint, ImageDown, ShieldCheck, ShieldAlert, ShieldX, ChevronDown, ArrowRight, AlertTriangle, Info } from "lucide-react";
 import { Skeleton } from "./ui/skeleton";
 import { ChemDepict } from "./ChemDepict";
+import { FormulaDisplay } from "./chemDisplay";
 import { useCachedSVG } from "@/hooks/useCachedSVG";
 import { Molecule3DViewer } from "./Molecule3DViewer";
 import { ArrowStyleSelector } from "./ArrowStyleSelector";
@@ -311,7 +312,7 @@ export function MoleculeDetailPanel({ molecule, open, onClose, onEdit, onFindSim
                                     </>
                                 ) : properties ? (
                                     <>
-                                        {properties.molecularFormula && <span className="font-mono" dangerouslySetInnerHTML={{ __html: properties.molecularFormula.replace(/(\d+)/g, "<sub>$1</sub>") }} />}
+                                        {properties.molecularFormula && <FormulaDisplay formula={properties.molecularFormula} className="font-mono" />}
                                         {properties.mw != null && <><span className="text-muted-foreground/30">&middot;</span><span className="tabular-nums">{properties.mw.toFixed(2)} g/mol</span></>}
                                     </>
                                 ) : null}

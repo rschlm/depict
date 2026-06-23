@@ -17,6 +17,12 @@ export type ReactionArrowStyle =
   | "no-go"
   | "resonance";
 
+/** Strip the outer <svg> wrapper, returning just the inner markup (for embedding in a group). */
+function extractSVGContent(svgString: string): string {
+  const match = svgString.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
+  return match ? match[1] : svgString;
+}
+
 function generateArrowSVG(
   arrowStyle: ReactionArrowStyle,
   arrowX: number,
@@ -114,10 +120,6 @@ export function generateSVG(
 
       if (!svg) {
         try {
-          const extractSVGContent = (svgString: string): string => {
-            const match = svgString.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
-            return match ? match[1] : svgString;
-          };
           const arrowLength = Math.min(24, Math.max(12, Math.floor(width / (steps.length * 4))));
           const arrowSpacing = Math.min(10, Math.max(4, Math.floor(width / (steps.length * 8))));
           const totalArrowSpace = (steps.length - 1) * (arrowLength + arrowSpacing * 2);
@@ -177,10 +179,6 @@ export function generateSVG(
         }
       }
     } else if (smiles.includes(">") && !smiles.includes(">>")) {
-      const extractSVGContent = (svgString: string): string => {
-        const match = svgString.match(/<svg[^>]*>([\s\S]*?)<\/svg>/);
-        return match ? match[1] : svgString;
-      };
       const arrowLength = 20;
       const gap = 10;
       let reaction: Reaction | null = null;
