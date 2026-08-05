@@ -4,7 +4,6 @@
 
 export const MOLECULE_CARD = {
     MIN_GAP: 16,
-    MAX_GAP: 24,
 };
 
 export const CARDS_PER_ROW = {
@@ -98,24 +97,10 @@ export function getCardDimensionsFromCardsPerRow(
     };
 }
 
-export const DEBOUNCE_MS = {
-    INPUT: 800,
-    RESIZE: 150,
-    FILTER: 300,
-};
-
-export const WORKER_CONFIG = {
-    PROPERTY_CALCULATION_WORKERS: 4,
-    BATCH_SIZE: 100,
-    PROGRESS_UPDATE_INTERVAL: 100,
-};
-
 export const VIRTUALIZATION = {
     OVERSCAN_ROWS: 5,
-    ESTIMATED_ROW_HEIGHT: 296, // fallback only; real row height comes from getCardDimensionsFromCardsPerRow
 };
 
 export const CACHE = {
     SVG_MAX_SIZE: 1000,
-    SVG_TTL_MS: 300000, // 5 minutes
 };

@@ -17,7 +17,7 @@ import {
   ChevronsUpDown,
   ArrowRight,
 } from "lucide-react";
-import HexagonTwoTone from "@mui/icons-material/HexagonTwoTone";
+import { HexagonIcon } from "@/components/HexagonIcon";
 
 interface ColumnDef {
   key: string;
@@ -248,7 +248,7 @@ export function MoleculeTable({
                         variant="outline"
                         className="text-[9px] px-1.5 py-0 h-[18px] gap-1 border-primary/30 text-primary bg-primary/5"
                       >
-                        <HexagonTwoTone style={{ transform: "rotate(90deg)", fontSize: "10px" }} />
+                        <HexagonIcon style={{ transform: "rotate(90deg)", fontSize: "10px" }} />
                         Mol
                       </Badge>
                     )}

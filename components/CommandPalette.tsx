@@ -33,7 +33,7 @@ import {
   Save,
   ArrowRight,
 } from "lucide-react";
-import HexagonTwoTone from "@mui/icons-material/HexagonTwoTone";
+import { HexagonIcon } from "@/components/HexagonIcon";
 import { useTheme } from "next-themes";
 import { isReactionSmiles } from "@/utils/chemUtils";
 import type { MoleculeData } from "@/store/useChemStore";
@@ -167,7 +167,7 @@ export function CommandPalette({
                       {isRxn ? (
                         <ArrowRight className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                       ) : (
-                        <HexagonTwoTone
+                        <HexagonIcon
                           style={{
                             transform: "rotate(90deg)",
                             fontSize: "14px",

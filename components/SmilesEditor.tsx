@@ -124,8 +124,8 @@ function createSmilesTheme(isDark: boolean) {
     return EditorView.theme(
         {
             "&": {
-                backgroundColor: "hsl(var(--background))",
-                color: "hsl(var(--foreground))",
+                backgroundColor: "var(--background)",
+                color: "var(--foreground)",
                 fontSize: "12px",
                 fontFamily: "'JetBrains Mono', 'Fira Code', 'Monaco', monospace",
             },
@@ -136,6 +136,12 @@ function createSmilesTheme(isDark: boolean) {
             },
             ".cm-line": {
                 padding: "0",
+            },
+            // The overlay toolbar (validity badges + actions) floats over the top-right of
+            // the editor, so keep the first line clear of it. Width is published as
+            // --smiles-toolbar-w by the wrapper; 0 when there is no toolbar.
+            ".cm-line:first-of-type": {
+                paddingRight: "var(--smiles-toolbar-w, 0px)",
             },
             "&.cm-focused .cm-cursor": {
                 borderLeftColor: "#818cf8",
@@ -148,9 +154,9 @@ function createSmilesTheme(isDark: boolean) {
                 backgroundColor: isDark ? "#1e293b" : "rgba(99, 102, 241, 0.12)",
             },
             ".cm-gutters": {
-                backgroundColor: "hsl(var(--muted) / 0.3)",
-                borderRight: "1px solid hsl(var(--border))",
-                color: "hsl(var(--muted-foreground) / 0.5)",
+                backgroundColor: "color-mix(in oklab, var(--muted) 30%, transparent)",
+                borderRight: "1px solid var(--border)",
+                color: "color-mix(in oklab, var(--muted-foreground) 50%, transparent)",
                 paddingRight: "8px",
                 paddingLeft: "4px",
             },
@@ -164,8 +170,8 @@ function createSmilesTheme(isDark: boolean) {
                 textAlign: "right",
             },
             ".cm-activeLineGutter": {
-                backgroundColor: "hsl(var(--muted) / 0.5)",
-                color: "hsl(var(--muted-foreground))",
+                backgroundColor: "color-mix(in oklab, var(--muted) 50%, transparent)",
+                color: "var(--muted-foreground)",
             },
             ".cm-scroller": {
                 overflow: "visible !important",
@@ -174,7 +180,7 @@ function createSmilesTheme(isDark: boolean) {
                 outline: "none",
             },
             ".cm-placeholder": {
-                color: "hsl(var(--muted-foreground))",
+                color: "var(--muted-foreground)",
                 fontStyle: "normal",
             },
             ".cm-invalid-smiles-line": {

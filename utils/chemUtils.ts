@@ -1,4 +1,4 @@
-import { Molecule, MoleculeProperties, Reaction, SSSearcher, SSSearcherWithIndex } from "openchemlib";
+import { Molecule, MoleculeProperties, Reaction } from "openchemlib";
 import { isReactionSmiles } from "@/lib/reactionSmiles";
 
 export { isReactionSmiles } from "@/lib/reactionSmiles";
@@ -66,14 +66,6 @@ export function getRo5Details(p: MoleculeProperty): Ro5Detail {
   };
 }
 
-export function countRo5Violations(p: MoleculeProperty): number {
-  let v = 0;
-  if (p.mw > 500) v++;
-  if (p.logP > 5) v++;
-  if (p.donorCount > 5) v++;
-  if (p.acceptorCount > 10) v++;
-  return v;
-}
 
 export type DeduplicationMode = "canonical" | "string";
 
@@ -173,30 +165,6 @@ export function calculateProperties(smiles: string): MoleculeProperty | null {
   }
 }
 
-/**
- * Perform substructure search using OpenChemLib
- */
-export function matchesSubstructure(
-  molecule: Molecule,
-  query: Molecule
-): boolean {
-  try {
-    if (!molecule || !query) return false;
-
-    // Clone the query molecule and set it as a fragment
-    const queryFragment = query.getCompactCopy();
-    queryFragment.setFragment(true);
-
-    // Create substructure searcher
-    const searcher = new SSSearcher();
-    searcher.setFragment(queryFragment);
-    searcher.setMolecule(molecule);
-
-    return searcher.isFragmentInMolecule();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Generate PubChem URL for a SMILES string
@@ -471,33 +439,6 @@ export function getSciFinderUrl(): string {
   return "https://scifinder-n.cas.org/";
 }
 
-/**
- * Calculate Tanimoto similarity between two molecules using OpenChemLib indexes
- */
-export function calculateSimilarity(
-  mol1: Molecule,
-  mol2: Molecule
-): number {
-  try {
-    if (!mol1 || !mol2) return 0;
-
-    // Use IDCode for exact match
-    const idcode1 = mol1.getIDCode();
-    const idcode2 = mol2.getIDCode();
-
-    if (idcode1 === idcode2 && idcode1.length > 0) return 1.0;
-
-    // Use index-based similarity for structural similarity
-    const index1 = mol1.getIndex();
-    const index2 = mol2.getIndex();
-
-    if (index1.length === 0 || index2.length === 0) return 0;
-
-    return SSSearcherWithIndex.getSimilarityTanimoto(index1, index2);
-  } catch {
-    return 0;
-  }
-}
 
 export interface MoleculeWarning {
   code: "abnormalValence" | "highFormalCharge" | "stereoUnspecified";

@@ -255,8 +255,20 @@ export const useChemStore = create<ChemStore>((set, get) => ({
   },
 
   setMolecules: (smiles: string[], metadata?: Array<{ name?: string; customProperties?: Record<string, string> }>) => {
+    // The debounced input->molecules sync calls this with no metadata. Without carrying
+    // over what we already know per SMILES, a single keystroke after a file import
+    // silently dropped every imported name, tag and custom column.
+    const previous = new Map(
+      get().molecules.map((m) => [m.smiles, m] as const)
+    );
+
     const molecules: MoleculeData[] = smiles.map((smilesStr, index) => {
-      const meta = metadata?.[index];
+      const prior = previous.get(smilesStr);
+      const meta = metadata?.[index] ?? {
+        name: prior?.name,
+        customProperties: prior?.customProperties,
+      };
+      const tags = prior?.tags;
       try {
         const isRxn = isReactionSmiles(smilesStr);
         if (isRxn) {
@@ -285,6 +297,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
             reactionMeta,
             name: meta?.name,
             customProperties: meta?.customProperties,
+            tags,
           };
         } else {
           const mol = Molecule.fromSmiles(smilesStr);
@@ -297,6 +310,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
             isReaction: false,
             name: meta?.name,
             customProperties: meta?.customProperties,
+            tags,
           };
         }
       } catch {
@@ -309,6 +323,7 @@ export const useChemStore = create<ChemStore>((set, get) => ({
           isReaction: false,
           name: meta?.name,
           customProperties: meta?.customProperties,
+          tags,
         };
       }
     });

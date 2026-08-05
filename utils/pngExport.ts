@@ -59,12 +59,3 @@ export async function downloadPNG(
   URL.revokeObjectURL(url);
 }
 
-export async function copyPNGToClipboard(
-  svgContent: string,
-  scale: number = 2
-): Promise<void> {
-  const blob = await svgToPngBlob(svgContent, scale);
-  await navigator.clipboard.write([
-    new ClipboardItem({ "image/png": blob }),
-  ]);
-}

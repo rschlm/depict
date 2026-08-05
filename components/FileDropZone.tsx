@@ -9,7 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 
-export function FileDropZone() {
+interface ImportProps {
+    /** Called with the imported SMILES so the page can sync its input textarea —
+        session/share/project state all derive from that string, so an import that
+        skips it is lost on reload. */
+    onImported?: (smiles: string[]) => void;
+}
+
+export function FileDropZone({ onImported }: ImportProps = {}) {
     const [isDragging, setIsDragging] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -86,6 +93,7 @@ export function FileDropZone() {
 
             setProgress(90);
             setMolecules(smiles, metadata);
+            onImported?.(smiles);
 
             setProgress(100);
             setStatus("success");
@@ -110,7 +118,7 @@ export function FileDropZone() {
                 setProgress(0);
             }, 2000);
         }
-    }, [setMolecules]);
+    }, [setMolecules, onImported]);
 
     const handleDrop = useCallback(async (e: DragEvent) => {
         e.preventDefault();
@@ -265,7 +273,7 @@ export function FileDropZone() {
 }
 
 // Export the button component for use in the header
-export function FileImportButton() {
+export function FileImportButton({ onImported }: ImportProps = {}) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { setMolecules } = useChemStore();
     const [isProcessing, setIsProcessing] = useState(false);
@@ -296,6 +304,7 @@ export function FileImportButton() {
                 return { name: name ? String(name) : undefined, customProperties };
             });
             setMolecules(smiles, metadata);
+            onImported?.(smiles);
 
             toast.success("Import successful", {
                 description: `Imported ${molecules.length.toLocaleString()} structure${molecules.length === 1 ? "" : "s"}`,

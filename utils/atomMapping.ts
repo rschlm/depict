@@ -39,32 +39,3 @@ export function hasAtomMaps(reaction: Reaction): boolean {
     return collectMapNumbers(mols).length > 0;
 }
 
-/**
- * Apply atom map highlighting: color atoms by their map number.
- * Same map number = same color across reactants and products.
- * @param molecules - All molecules from the reaction
- * @param colorPalette - Array of OpenChemLib color constants (e.g. Molecule.cAtomColorRed)
- */
-export function applyAtomMapHighlighting(
-    molecules: Molecule[],
-    colorPalette: number[]
-): void {
-    const mapNumbers = collectMapNumbers(molecules);
-    if (mapNumbers.length === 0 || colorPalette.length === 0) return;
-
-    const mapNoToColor = new Map<number, number>();
-    mapNumbers.forEach((mapNo, idx) => {
-        mapNoToColor.set(mapNo, colorPalette[idx % colorPalette.length]);
-    });
-
-    for (const mol of molecules) {
-        const n = mol.getAllAtoms();
-        for (let i = 0; i < n; i++) {
-            const mapNo = mol.getAtomMapNo(i);
-            if (mapNo !== 0) {
-                const color = mapNoToColor.get(mapNo);
-                if (color !== undefined) mol.setAtomColor(i, color);
-            }
-        }
-    }
-}

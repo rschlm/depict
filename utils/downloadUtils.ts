@@ -46,14 +46,6 @@ export function generateFilenameFromSmiles(smiles: string, extension: string): s
     return `molecule_${sanitized}_${timestamp}.${extension}`;
 }
 
-export interface MoleculeDataForExport {
-    id: string;
-    smiles: string;
-    mol: { toMolfile: () => string } | null;
-    isReaction: boolean;
-    /** Compatible with MoleculeProperty (mw, logP, etc.) */
-    properties: Record<string, number> | null;
-}
 
 /**
  * Export molecules as SDF. Returns the count of reactions that were skipped.

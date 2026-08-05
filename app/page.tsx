@@ -1,9 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
+import { Suspense, useEffect, useLayoutEffect, useState, useMemo, useRef, useCallback, useReducer } from "react";
 import dynamic from "next/dynamic";
 import { Search, Filter, X, Loader2, AlertCircle, CheckCircle2, Layers, ArrowRight, BarChart3, ChevronDown, Sliders, Copy, Check, Pencil, Clipboard, Download, Undo2, Redo2, ArrowUp, ListOrdered, Scale, TestTube2, Crosshair, Droplets, RotateCw, Atom, Droplet, Target, Keyboard, CopyMinus, Link2, FileText, FileCode, Table2, SlidersHorizontal, Image, Printer, Fingerprint, RefreshCw, LayoutGrid, TableProperties, Wand2 } from "lucide-react";
-import HexagonTwoTone from '@mui/icons-material/HexagonTwoTone';
+import { HexagonIcon } from "@/components/HexagonIcon";
 import { MoleculeGrid } from "@/components/MoleculeGrid";
 import { MoleculeTable } from "@/components/MoleculeTable";
 import { MoleculeGridSkeleton } from "@/components/MoleculeGridSkeleton";
@@ -220,6 +220,8 @@ function HomeContent() {
   const inputHistoryIndex = inputHistoryState.index;
   const skipNextPushRef = useRef(false);
   const skipNextSyncRef = useRef(false);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const inputToolbarRef = useRef<HTMLDivElement>(null);
   const debouncePushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleSmilesInputChange = useCallback((value: string) => {
@@ -297,6 +299,22 @@ function HomeContent() {
       reorderMolecules(newMolecules);
     },
     [molecules, displayedMolecules, handleSmilesInputChange, reorderMolecules]
+  );
+
+  /**
+   * Mirror an import into the SMILES textarea. Session restore, share links and
+   * .depict projects all derive from `smilesInput`, so an import that only populated
+   * the store was lost on reload and absent from shares. The sync effect is suppressed
+   * because the store already holds these molecules with their imported names and
+   * custom columns, which a plain re-parse would not carry.
+   */
+  const handleImported = useCallback(
+    (smiles: string[]) => {
+      if (smiles.length === 0) return;
+      skipNextSyncRef.current = true;
+      handleSmilesInputChange(smiles.join("\n"));
+    },
+    [handleSmilesInputChange]
   );
 
   useEffect(() => {
@@ -812,6 +830,20 @@ function HomeContent() {
     return { validSmiles: valid, invalidSmiles: invalid };
   }, [smilesInput]);
 
+  /**
+   * Publish the floating toolbar's width so the editor can inset its first line and
+   * long SMILES stop running underneath the buttons. Written straight to the DOM
+   * rather than through state: the toolbar's width is a layout fact, and a setState
+   * here would just trigger a second render for a value only CSS consumes.
+   */
+  useLayoutEffect(() => {
+    const wrap = inputWrapRef.current;
+    const toolbar = inputToolbarRef.current;
+    if (!wrap) return;
+    const width = toolbar ? toolbar.offsetWidth : 0;
+    wrap.style.setProperty("--smiles-toolbar-w", width ? `${width + 10}px` : "0px");
+  }, [smilesInput, validSmiles.length, invalidSmiles.length, inputExpanded]);
+
   // Update molecules when SMILES input changes (on the fly with debounce)
   useEffect(() => {
     // Clear molecules immediately when input changes to prevent showing stale data
@@ -1206,7 +1238,7 @@ function HomeContent() {
                         aria-pressed={typeFilter === "molecules"}
                         aria-label={typeFilter === "molecules" ? "Show all (click to clear filter)" : "Show molecules only"}
                       >
-                        <HexagonTwoTone style={{ transform: "rotate(90deg)", fontSize: "12px" }} className="text-muted-foreground shrink-0" />
+                        <HexagonIcon style={{ transform: "rotate(90deg)", fontSize: "12px" }} className="text-muted-foreground shrink-0" />
                         <span className="text-xs font-sans font-medium">{moleculeCount.toLocaleString()}</span>
                       </button>
                     </TooltipTrigger>
@@ -1347,7 +1379,7 @@ function HomeContent() {
                 </Button>
               )}
 
-              <FileImportButton />
+              <FileImportButton onImported={handleImported} />
 
               {displayedMolecules.length > 0 && (() => {
                 const filtersApplied = filteredMolecules.length < molecules.length || typeFilter !== "all";
@@ -1850,12 +1882,14 @@ function HomeContent() {
           {/* Collapsible Input Section */}
           {inputExpanded && (
             <div className="border-t border-border/40 py-3 space-y-3">
-              {/* Main row: SMILES input (left) + controls in two rows (right) */}
-              <div className="flex items-start gap-4">
+              {/* Main row: SMILES input (left) + controls in two rows (right).
+                  Stacks below lg: as a single non-wrapping row the shrink-0 control
+                  stack starved the flex-1 min-w-0 editor to width 0 on narrow screens. */}
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-start gap-3 lg:gap-4">
                 {/* SMILES Input */}
-                <div className="flex-1 min-w-0 relative">
+                <div ref={inputWrapRef} className="flex-1 min-w-0 relative">
                   {/* Top-right controls - Always visible */}
-                  <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                  <div ref={inputToolbarRef} className="absolute top-2 right-2 flex items-center gap-1 z-10">
                     {/* Validation badges: n valid (tick), m invalid (cross) */}
                     {smilesInput && (
                       <div className="flex items-center gap-1.5">
@@ -2081,10 +2115,11 @@ function HomeContent() {
                   />
                 </div>
 
-                {/* Right: two rows of controls */}
-                <div className="flex flex-col gap-2 shrink-0">
+                {/* Right: two rows of controls. Only shrink-0 once side-by-side (lg+);
+                    below that it is a stacked block and must be allowed to wrap. */}
+                <div className="flex flex-col gap-2 lg:shrink-0 min-w-0">
                   {/* Row 1: Sort, Substructure search, Properties button */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-1.5">
                         <Select
                           value={sortBy}
@@ -2190,7 +2225,7 @@ function HomeContent() {
                     </Button>
                   </div>
                   {/* Row 2: Properties, Charts */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant={showPropertyFilters ? "default" : "outline"}
                       size="sm"
@@ -2310,7 +2345,7 @@ function HomeContent() {
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
-                  <HexagonTwoTone style={{ transform: 'rotate(90deg)' }} />
+                  <HexagonIcon style={{ transform: 'rotate(90deg)' }} />
                 </EmptyMedia>
                 <EmptyTitle>No Molecules to Display</EmptyTitle>
                 <EmptyDescription>
@@ -2365,7 +2400,7 @@ function HomeContent() {
                 )}
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/40 border border-border/60 text-xs">
-                    <HexagonTwoTone style={{ transform: 'rotate(90deg)', fontSize: '14px' }} className="text-muted-foreground" />
+                    <HexagonIcon style={{ transform: 'rotate(90deg)', fontSize: '14px' }} className="text-muted-foreground" />
                     <span className="text-muted-foreground">SMILES & Reaction SMILES</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-muted/40 border border-border/60 text-xs">
@@ -2468,7 +2503,7 @@ function HomeContent() {
       />
 
       {/* File Drop Zone */}
-      <FileDropZone />
+      <FileDropZone onImported={handleImported} />
 
       {/* Command Palette */}
       <CommandPalette

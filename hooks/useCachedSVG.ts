@@ -59,6 +59,8 @@ export function useCachedSVG(
     displayOptions?: DepictorOptions,
     arrowStyle: ReactionArrowStyle = "forward"
 ): string | null {
+    // No theme in the key: heteroatoms keep OpenChemLib's standard CPK colours, which
+    // are theme-independent, and bonds/carbon use currentColor so CSS handles them.
     const cacheKey = useMemo(
         () => `${smiles}_${width}_${height}_${arrowStyle}_${JSON.stringify(displayOptions || {})}`,
         [smiles, width, height, arrowStyle, displayOptions]
@@ -76,9 +78,4 @@ export function useCachedSVG(
         }
         return svg;
     }, [cacheKey, smiles, width, height, displayOptions, arrowStyle]);
-}
-
-// Export cache clear function for testing/debugging
-export function clearSVGCache(): void {
-    svgCache.clear();
 }

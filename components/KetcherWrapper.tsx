@@ -163,7 +163,9 @@ export function KetcherWrapper({ initialMolecule, onSave, onClose }: KetcherWrap
             const molfile = await editorRef.current.getMolfile();
             onSave(smiles, molfile);
         } catch {
-            alert("Failed to save structure. Please check the drawing.");
+            toast.error("Failed to save structure", {
+                description: "Please check the drawing and try again.",
+            });
         }
     };
 

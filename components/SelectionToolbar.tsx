@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Pin, X, FileText, FileCode, Table2, SlidersHorizontal, Image, ImageDown, CheckSquare, Square } from "lucide-react";
+import { Download, Pin, X, FileText, FileCode, Table2, SlidersHorizontal, Image as ImageIcon, ImageDown, CheckSquare, Square } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -207,7 +207,7 @@ export function SelectionToolbar({
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={handleExportSVGZip}>
-              <Image className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
+              <ImageIcon className="w-3.5 h-3.5 mr-2 shrink-0" aria-hidden />
               Export as SVG (ZIP)
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleExportPNGZip}>

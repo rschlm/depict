@@ -17,7 +17,7 @@ import {
   rectSortingStrategy,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { MoleculeCard } from "./MoleculeCard";
 import { SortableMoleculeCard } from "./SortableMoleculeCard";
 import { CompareBar } from "./CompareBar";

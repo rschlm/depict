@@ -3,7 +3,6 @@
  * Used by both the client (useCachedSVG) and API routes.
  */
 import { Molecule, Reaction, DepictorOptions } from "openchemlib";
-import { ATOM_COLORS } from "@/constants/theme";
 import {
   hasAtomMaps,
   collectMapNumbers,
@@ -331,10 +330,6 @@ export function generateSVG(
     if (!svg) return null;
     svg = svg.replace(/#000000/g, "currentColor").replace(/#000/g, "currentColor");
     svg = svg.replace(/rgb\(0,\s*0,\s*0\)/g, "currentColor");
-    svg = svg.replace(/#FF0000/g, ATOM_COLORS[8] || "#f472b6");
-    svg = svg.replace(/#0000FF/g, ATOM_COLORS[7] || "#818cf8");
-    svg = svg.replace(/rgb\(255,\s*0,\s*0\)/g, ATOM_COLORS[8] || "#f472b6");
-    svg = svg.replace(/rgb\(0,\s*0,\s*255\)/g, ATOM_COLORS[7] || "#818cf8");
     const styleInject = `
       <style>
         .ocl-svg { color: currentColor; }
