@@ -3,7 +3,7 @@
 import { useRef, useState, useLayoutEffect } from "react";
 import { MoleculeCardSkeleton } from "./MoleculeCardSkeleton";
 import { useChemStore } from "@/store/useChemStore";
-import { MOLECULE_CARD, MIN_CARD_WIDTH, getCardDimensionsFromCardsPerRow } from "@/constants/ui";
+import { MOLECULE_CARD, MIN_CARD_WIDTH, getCardDimensionsFromCardsPerRow, getHiddenRowsHeight } from "@/constants/ui";
 
 interface MoleculeGridSkeletonProps {
   count: number;
@@ -24,25 +24,25 @@ export function MoleculeGridSkeleton({
   const [containerWidth, setContainerWidth] = useState(800);
 
   useLayoutEffect(() => {
-    if (parentRef.current) {
-      const updateWidth = () => {
-        if (parentRef.current) {
-          setContainerWidth(parentRef.current.offsetWidth);
-        }
-      };
-      updateWidth();
-      window.addEventListener("resize", updateWidth);
-      return () => window.removeEventListener("resize", updateWidth);
-    }
+    const el = parentRef.current;
+    if (!el) return;
+    const update = () => setContainerWidth(el.offsetWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update); // fallback: some environments don't deliver RO callbacks
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const minGap = MOLECULE_CARD.MIN_GAP;
-  const { height: cardHeight, structureWidth, structureHeight, columns } =
+  const { width: cardWidth, height: cardHeight, structureWidth, structureHeight, columns } =
     getCardDimensionsFromCardsPerRow(containerWidth, cardsPerRow, minGap);
 
-  let adjustedCardHeight = cardHeight;
-  if (hideActionButtons) adjustedCardHeight -= Math.round(36 * (cardHeight / MOLECULE_CARD.HEIGHT));
-  if (hideProperties) adjustedCardHeight -= Math.round(28 * (cardHeight / MOLECULE_CARD.HEIGHT));
+  const adjustedCardHeight =
+    cardHeight - getHiddenRowsHeight(cardWidth, hideActionButtons, hideProperties);
 
   const gap = minGap;
   const skeletonCount = Math.min(count, columns * 4); // Limit to ~4 rows for performance

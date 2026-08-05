@@ -182,21 +182,21 @@ export const MoleculeCard = memo(function MoleculeCard({ molecule, displayOption
         </Tooltip>
       </div>
 
-      {/* Structure Rendering */}
-      <div className={`bg-muted/20 min-h-0 flex-shrink overflow-hidden ${compact ? "p-2" : "p-4"}`}>
+      {/* Structure Rendering — flexes so it absorbs any slack/deficit left by the footer */}
+      <div className={`bg-muted/20 flex-1 min-h-0 flex items-center justify-center overflow-hidden ${compact ? "p-2" : "p-4"}`}>
         <ChemDepict
           smiles={molecule.smiles}
           width={structureWidth}
           height={structureHeight}
-          className="mx-auto"
+          className="max-w-full max-h-full"
           displayOptions={displayOptions}
           arrowStyle={reactionArrowStyle}
           onSVGGenerated={setSvgContent}
         />
       </div>
 
-      {/* Properties Footer */}
-      <div className={`flex flex-col flex-1 min-w-0 border-t border-border/60 bg-card ${compact ? "min-h-[76px] px-2 pt-1.5 pb-1.5" : "min-h-[100px] px-3 pt-2.5 pb-2.5"}`}>
+      {/* Properties Footer — intrinsic height: never squeezed (clipped) nor stretched (dead space) */}
+      <div className={`flex flex-col flex-none min-w-0 border-t border-border/60 bg-card ${compact ? "px-2 pt-1.5 pb-1.5" : "px-3 pt-2.5 pb-2.5"}`}>
         <div className={`flex items-center gap-1.5 ${compact ? "mb-1" : "mb-2"}`}>
           <div className="flex-1 min-w-0 flex items-center gap-1.5">
             <FlaskConical className={`shrink-0 text-muted-foreground/60 ${compact ? "w-2.5 h-2.5" : "w-3 h-3"}`} />

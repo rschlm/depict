@@ -7,7 +7,6 @@ interface KetcherPanelProps {
     onClose: () => void;
     initialMolecule?: string;
     onSave: (smiles: string, molfile: string) => void;
-    mode?: "draw" | "edit";
 }
 
 export function KetcherPanel({
@@ -15,7 +14,6 @@ export function KetcherPanel({
     onClose,
     initialMolecule,
     onSave,
-    mode = "draw",
 }: KetcherPanelProps) {
     const handleSave = (smiles: string, molfile: string) => {
         onSave(smiles, molfile);
@@ -39,19 +37,8 @@ export function KetcherPanel({
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="h-full flex flex-col">
-                    {/* Header - Linear Style */}
-                    <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-border/40 bg-muted/20">
-                        <div className="flex items-center gap-3">
-                            <h2 className="text-base sm:text-lg font-semibold tracking-tight">
-                                {mode === "edit" ? "Edit Molecule" : "Draw Molecule"}
-                            </h2>
-                            <span className="text-xs text-muted-foreground hidden sm:inline">
-                                Use the molecular editor to {mode === "edit" ? "modify" : "create"} your structure
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Ketcher Editor - Full Width */}
+                    {/* Ketcher Editor - Full Width. No panel header: the editor has its own
+                        Save/Close controls, so a title bar only ate vertical space. */}
                     <div className="flex-1 overflow-hidden">
                         {open && (
                             <KetcherEditor

@@ -38,17 +38,19 @@ export function ChemDepict({
     return (
       <div
         className={`flex items-center justify-center bg-muted/50 border border-border/40 rounded ${className}`}
-        style={{ width, height }}
+        style={{ width, height, maxWidth: "100%", maxHeight: "100%" }}
       >
         <span className="text-muted-foreground/60 text-xs font-sans">—</span>
       </div>
     );
   }
 
+  // The SVG carries a viewBox, so w-full/h-full lets it scale down (preserveAspectRatio keeps
+  // it undistorted) when the card gives the structure less room than its nominal size.
   return (
     <div
-      className={`flex items-center justify-center text-foreground ${className}`}
-      style={{ width, height }}
+      className={`flex items-center justify-center text-foreground [&>svg]:w-full [&>svg]:h-full ${className}`}
+      style={{ width, height, maxWidth: "100%", maxHeight: "100%" }}
       dangerouslySetInnerHTML={{ __html: svgContent }}
     />
   );

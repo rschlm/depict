@@ -2465,7 +2465,6 @@ function HomeContent() {
         onClose={() => setShowKetcherDialog(false)}
         initialMolecule={moleculeToEdit}
         onSave={handleSaveFromKetcher}
-        mode={ketcherMode}
       />
 
       {/* File Drop Zone */}

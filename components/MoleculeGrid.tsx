@@ -23,7 +23,7 @@ import { SortableMoleculeCard } from "./SortableMoleculeCard";
 import { CompareBar } from "./CompareBar";
 import { useChemStore } from "@/store/useChemStore";
 import { DepictorOptions } from "openchemlib";
-import { MOLECULE_CARD, VIRTUALIZATION, MIN_CARD_WIDTH, getCardDimensionsFromCardsPerRow } from "@/constants/ui";
+import { MOLECULE_CARD, VIRTUALIZATION, MIN_CARD_WIDTH, getCardDimensionsFromCardsPerRow, getHiddenRowsHeight } from "@/constants/ui";
 import type { MoleculeData } from "@/store/useChemStore";
 import type { MoleculeProperty } from "@/utils/chemUtils";
 
@@ -101,17 +101,23 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
   const [containerWidth, setContainerWidth] = useState(0);
 
   useLayoutEffect(() => {
-    if (parentRef.current) {
-      setStartOffset(parentRef.current.offsetTop);
-      const updateWidth = () => {
-        if (parentRef.current) {
-          setContainerWidth(parentRef.current.offsetWidth);
-        }
-      };
-      updateWidth();
-      window.addEventListener('resize', updateWidth);
-      return () => window.removeEventListener('resize', updateWidth);
-    }
+    const el = parentRef.current;
+    if (!el) return;
+    // ResizeObserver, not window.resize: the container also changes width without the window
+    // doing so (panels opening, scrollbar appearing). A stale width here sizes the structure
+    // and card height for a width the grid no longer has, which clips the footer.
+    const update = () => {
+      setStartOffset(el.offsetTop);
+      setContainerWidth(el.offsetWidth);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update); // fallback: some environments don't deliver RO callbacks
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const minGap = MOLECULE_CARD.MIN_GAP;
@@ -124,9 +130,8 @@ export function MoleculeGrid({ className = "", molecules: moleculesProp, display
   } = getCardDimensionsFromCardsPerRow(containerWidth || 800, cardsPerRow, minGap);
 
   // Calculate height based on what's hidden
-  let adjustedCardHeight = cardHeight;
-  if (hideActionButtons) adjustedCardHeight -= Math.round(36 * (cardHeight / MOLECULE_CARD.HEIGHT));
-  if (hideProperties) adjustedCardHeight -= Math.round(28 * (cardHeight / MOLECULE_CARD.HEIGHT));
+  const adjustedCardHeight =
+    cardHeight - getHiddenRowsHeight(cardWidth, hideActionButtons, hideProperties);
 
   const gap = minGap;
 
